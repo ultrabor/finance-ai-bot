@@ -1,0 +1,98 @@
+package domain
+
+import (
+	"errors"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+)
+
+// Money — сумма в копейках. Float для денег не используем.
+type Money int64
+
+// MaxMoney — верхняя граница одной траты (100 млн ₽), защита от опечаток и переполнений.
+const MaxMoney Money = 100_000_000_00
+
+var errInvalidMoney = errors.New("invalid amount")
+
+// ParseMoney разбирает десятичную строку в рублях: "350", "350.5", "1200,90".
+func ParseMoney(s string) (Money, error) {
+	s = strings.ReplaceAll(strings.TrimSpace(s), ",", ".")
+	if s == "" {
+		return 0, errInvalidMoney
+	}
+	neg := strings.HasPrefix(s, "-")
+	s = strings.TrimPrefix(s, "-")
+
+	whole, frac, hasFrac := strings.Cut(s, ".")
+	if whole == "" || (hasFrac && (frac == "" || len(frac) > 2)) {
+		return 0, errInvalidMoney
+	}
+	rub, err := strconv.ParseInt(whole, 10, 64)
+	if err != nil || rub > int64(MaxMoney/100) {
+		return 0, errInvalidMoney
+	}
+	var kop int64
+	if hasFrac {
+		if len(frac) == 1 {
+			frac += "0"
+		}
+		if kop, err = strconv.ParseInt(frac, 10, 64); err != nil || kop < 0 {
+			return 0, errInvalidMoney
+		}
+	}
+	m := Money(rub*100 + kop)
+	if neg {
+		m = -m
+	}
+	return m, nil
+}
+
+// MoneyFromFloat переводит рубли (например, из аргументов LLM) в копейки с округлением.
+func MoneyFromFloat(rub float64) (Money, error) {
+	if math.IsNaN(rub) || math.IsInf(rub, 0) || math.Abs(rub) > float64(MaxMoney/100) {
+		return 0, errInvalidMoney
+	}
+	return Money(math.Round(rub * 100)), nil
+}
+
+// Decimal возвращает сумму в рублях без лишних нулей: "350", "350.5", "0.05".
+func (m Money) Decimal() string {
+	sign := ""
+	if m < 0 {
+		sign, m = "-", -m
+	}
+	rub, kop := int64(m)/100, int64(m)%100
+	if kop == 0 {
+		return fmt.Sprintf("%s%d", sign, rub)
+	}
+	return strings.TrimRight(fmt.Sprintf("%s%d.%02d", sign, rub, kop), "0")
+}
+
+// Float — сумма в рублях для JSON-ответов.
+func (m Money) Float() float64 {
+	return float64(m) / 100
+}
+
+// String форматирует сумму для человека: "1 200,50 ₽".
+func (m Money) String() string {
+	sign := ""
+	if m < 0 {
+		sign, m = "-", -m
+	}
+	rub, kop := int64(m)/100, int64(m)%100
+
+	digits := strconv.FormatInt(rub, 10)
+	var b strings.Builder
+	for i, d := range digits {
+		if i > 0 && (len(digits)-i)%3 == 0 {
+			b.WriteRune(' ')
+		}
+		b.WriteRune(d)
+	}
+	if kop != 0 {
+		fmt.Fprintf(&b, ",%02d", kop)
+	}
+	return sign + b.String() + " ₽"
+}

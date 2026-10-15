@@ -1,0 +1,210 @@
+openapi: 3.0.3
+info:
+  title: Finance AI Bot API
+  version: 1.0.0
+  description: |
+    REST API веб-панели главы семьи. Авторизации нет.
+    Суммы передаются в рублях (число, до 2 знаков после запятой), даты трат — `YYYY-MM-DD`.
+servers:
+  - url: /api/v1
+
+paths:
+  /expenses:
+    get:
+      summary: Список трат всех членов семьи
+      parameters:
+        - { name: user_id, in: query, schema: { type: integer, format: int64 }, description: Telegram ID члена семьи }
+        - { name: from, in: query, schema: { type: string, format: date }, description: Дата с (включительно) }
+        - { name: to, in: query, schema: { type: string, format: date }, description: Дата по (включительно) }
+        - { name: category, in: query, schema: { $ref: '#/components/schemas/CategoryCode' } }
+        - { name: q, in: query, schema: { type: string }, description: Поиск по комментарию }
+        - { name: limit, in: query, schema: { type: integer, default: 50, minimum: 1, maximum: 500 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0, minimum: 0 } }
+      responses:
+        '200':
+          description: Страница трат и итоги по всей выборке
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExpenseList' }
+        '400': { $ref: '#/components/responses/Error' }
+    post:
+      summary: Создать трату
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExpenseCreate' }
+      responses:
+        '201':
+          description: Созданная трата
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '400': { $ref: '#/components/responses/Error' }
+
+  /expenses/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: Получить трату
+      responses:
+        '200':
+          description: Трата
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      summary: Изменить трату (переданные поля)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExpenseUpdate' }
+      responses:
+        '200':
+          description: Обновлённая трата
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      summary: Удалить трату
+      responses:
+        '204': { description: Удалено }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /users:
+    get:
+      summary: Члены семьи
+      responses:
+        '200':
+          description: Список
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/User' } }
+    post:
+      summary: Добавить члена семьи вручную (обычно добавляется при первом сообщении боту)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserCreate' }
+      responses:
+        '201':
+          description: Созданный или обновлённый член семьи
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/Error' }
+
+  /categories:
+    get:
+      summary: Справочник категорий
+      responses:
+        '200':
+          description: Категории
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Category' } }
+
+components:
+  responses:
+    Error:
+      description: Ошибка
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    CategoryCode:
+      type: string
+      enum: [food, transport, housing, entertainment, health, shopping, other]
+
+    Category:
+      type: object
+      required: [code, label]
+      properties:
+        code: { $ref: '#/components/schemas/CategoryCode' }
+        label: { type: string, example: еда }
+
+    Expense:
+      type: object
+      required: [id, user_id, amount, category, spent_at, comment, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: integer, format: int64 }
+        amount: { type: number, example: 350.5 }
+        category: { $ref: '#/components/schemas/CategoryCode' }
+        spent_at: { type: string, format: date }
+        comment: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ExpenseList:
+      type: object
+      required: [items, total, sum]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Expense' } }
+        total: { type: integer, description: Количество трат по фильтру без учёта limit/offset }
+        sum: { type: number, description: Сумма трат по фильтру без учёта limit/offset }
+
+    ExpenseCreate:
+      type: object
+      required: [user_id, amount, category, spent_at]
+      properties:
+        user_id: { type: integer, format: int64 }
+        amount: { type: number, exclusiveMinimum: true, minimum: 0 }
+        category: { $ref: '#/components/schemas/CategoryCode' }
+        spent_at: { type: string, format: date }
+        comment: { type: string, nullable: true, maxLength: 500 }
+
+    ExpenseUpdate:
+      type: object
+      description: Передаются только изменяемые поля. `comment` = null или "" очищает комментарий.
+      properties:
+        amount: { type: number, exclusiveMinimum: true, minimum: 0 }
+        category: { $ref: '#/components/schemas/CategoryCode' }
+        spent_at: { type: string, format: date }
+        comment: { type: string, nullable: true, maxLength: 500 }
+
+    User:
+      type: object
+      required: [telegram_id, username, first_name, last_name, display_name, created_at]
+      properties:
+        telegram_id: { type: integer, format: int64 }
+        username: { type: string, nullable: true }
+        first_name: { type: string }
+        last_name: { type: string, nullable: true }
+        display_name: { type: string, example: Иван Петров }
+        created_at: { type: string, format: date-time }
+
+    UserCreate:
+      type: object
+      required: [telegram_id, first_name]
+      properties:
+        telegram_id: { type: integer, format: int64 }
+        first_name: { type: string }
+        last_name: { type: string }
+        username: { type: string }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, enum: [validation_error, not_found, bad_request, internal_error] }
+            message: { type: string }
+            field: { type: string }
