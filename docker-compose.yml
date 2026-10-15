@@ -1,21 +1,65 @@
+x-backend: &backend
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: finance-ai-bot:latest
+  env_file:
+    - .env
+  environment:
+    # Внутри сети compose база доступна по имени сервиса.
+    POSTGRES_HOST: db
+    POSTGRES_PORT: 5432
+    HTTP_HOST: 0.0.0.0
+    HTTP_PORT: 8080
+  # На Linux host.docker.internal нужно объявить явно (например, для локальной Ollama).
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  depends_on:
+    db:
+      condition: service_healthy
+  restart: unless-stopped
+
+# Порты публикуются только на BIND_ADDR (по умолчанию 127.0.0.1): API и панель без авторизации,
+# открывать их в сеть можно только в доверенном окружении (BIND_ADDR=0.0.0.0).
 services:
-  # web:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   ports:
-  #     - "${HTTP_PORT:-8080}:8080"
-  #   env_file:
-  #     - .env
-  #   depends_on:
-  #     db:
-  #       condition: service_healthy
+  api:
+    <<: *backend
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${API_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "/api", "-healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  bot:
+    <<: *backend
+    entrypoint: ["/bot"]
+    # При остановке бот доводит до ответа только сообщение, уже взятое в обработку
+    # (не дольше ~105 с: 90 с на агента + сохранение и отправка), остальные выкидывает
+    # и просит прислать снова. Не даём Docker убить процесс раньше.
+    stop_grace_period: 120s
+
+  web:
+    build:
+      context: ./web
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${WEB_PORT:-3000}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
   db:
     image: postgres:16-alpine
-    env_file:
-      - .env
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+    # Только переменные Postgres: секреты бота и LLM контейнеру БД не нужны.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # Порт на хосте не публикуется (не конфликтует с локальным Postgres);
+    # для make run / make test-integration: make db (compose.dev.yml).
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -24,6 +68,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+    restart: unless-stopped
 
 volumes:
   postgres_data:

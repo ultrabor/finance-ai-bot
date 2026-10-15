@@ -91,6 +91,12 @@ func ParseDate(s string) (time.Time, error) {
 	return time.Parse(DateLayout, s)
 }
 
+// TruncateDate отбрасывает время и часовой пояс, сохраняя календарную дату t.
+func TruncateDate(t time.Time) time.Time {
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
 // DateOf возвращает календарную дату момента t в часовом поясе loc как полночь UTC.
 func DateOf(t time.Time, loc *time.Location) time.Time {
 	y, m, d := t.In(loc).Date()

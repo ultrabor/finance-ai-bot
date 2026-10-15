@@ -4,7 +4,10 @@ info:
   version: 1.0.0
   description: |
     REST API веб-панели главы семьи. Авторизации нет.
-    Суммы передаются в рублях (число, до 2 знаков после запятой), даты трат — `YYYY-MM-DD`.
+    Суммы передаются в рублях JSON-числом (строки отклоняются), до 2 знаков после точки; даты трат — `YYYY-MM-DD`.
+    Тело запроса — один JSON-объект до 64 КБ (больше — 413). Неверный метод для известного пути — 405
+    (с заголовком Allow), неизвестный путь — 404. Любая операция может вернуть 500.
+    Все ошибки, включая 404/405/413/500, имеют тело `Error`.
 servers:
   - url: /api/v1
 
@@ -18,7 +21,7 @@ paths:
         - { name: to, in: query, schema: { type: string, format: date }, description: Дата по (включительно) }
         - { name: category, in: query, schema: { $ref: '#/components/schemas/CategoryCode' } }
         - { name: q, in: query, schema: { type: string }, description: Поиск по комментарию }
-        - { name: limit, in: query, schema: { type: integer, default: 50, minimum: 1, maximum: 500 } }
+        - { name: limit, in: query, schema: { type: integer, default: 50, minimum: 1, maximum: 500 }, description: Вне диапазона — 400 }
         - { name: offset, in: query, schema: { type: integer, default: 0, minimum: 0 } }
       responses:
         '200':
@@ -41,6 +44,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Expense' }
         '400': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
 
   /expenses/{id}:
     parameters:
@@ -69,6 +73,7 @@ paths:
               schema: { $ref: '#/components/schemas/Expense' }
         '400': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
     delete:
       summary: Удалить трату
       responses:
@@ -90,6 +95,12 @@ paths:
                   items: { type: array, items: { $ref: '#/components/schemas/User' } }
     post:
       summary: Добавить члена семьи вручную (обычно добавляется при первом сообщении боту)
+      description: |
+        Создаёт или обновляет члена семьи по `telegram_id`. Обновление полностью заменяет
+        `first_name`, `last_name` и `username`: не переданное или пустое поле очищается
+        (`first_name` обязателен). Приоритет у данных Telegram: бот при каждом сообщении
+        заново синхронизирует имя, фамилию и username из профиля Telegram, поэтому
+        изменения, сделанные через панель, перезапишутся.
       requestBody:
         required: true
         content:
@@ -102,6 +113,16 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
         '400': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+
+  /healthz:
+    servers:
+      - url: /
+    get:
+      summary: Проверка живости (включая доступность БД)
+      responses:
+        '200': { description: OK }
+        '503': { description: БД недоступна }
 
   /categories:
     get:
@@ -163,16 +184,18 @@ components:
       required: [user_id, amount, category, spent_at]
       properties:
         user_id: { type: integer, format: int64 }
-        amount: { type: number, exclusiveMinimum: true, minimum: 0 }
+        amount: { type: number, exclusiveMinimum: true, minimum: 0, maximum: 100000000 }
         category: { $ref: '#/components/schemas/CategoryCode' }
         spent_at: { type: string, format: date }
         comment: { type: string, nullable: true, maxLength: 500 }
 
     ExpenseUpdate:
       type: object
-      description: Передаются только изменяемые поля. `comment` = null или "" очищает комментарий.
+      description: |
+        Передаются только изменяемые поля. `comment` = null или "" очищает комментарий.
+        null для amount, category и spent_at недопустим (400).
       properties:
-        amount: { type: number, exclusiveMinimum: true, minimum: 0 }
+        amount: { type: number, exclusiveMinimum: true, minimum: 0, maximum: 100000000 }
         category: { $ref: '#/components/schemas/CategoryCode' }
         spent_at: { type: string, format: date }
         comment: { type: string, nullable: true, maxLength: 500 }
@@ -205,6 +228,6 @@ components:
           type: object
           required: [code, message]
           properties:
-            code: { type: string, enum: [validation_error, not_found, bad_request, internal_error] }
+            code: { type: string, enum: [validation_error, not_found, method_not_allowed, bad_request, payload_too_large, internal_error] }
             message: { type: string }
             field: { type: string }

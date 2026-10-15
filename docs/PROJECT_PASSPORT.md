@@ -6,7 +6,7 @@
 |---|---|
 | Название | Finance AI Bot — сервис учёта семейных расходов |
 | Тип | Тестовое задание |
-| Источник требований | [test-task-expenses.md](../test-task-expenses.md) |
+| Источник требований | [test-task-expenses.md](test-task-expenses.md) |
 | Срок | 5 рабочих дней |
 | Состав | Telegram-бот с ИИ-агентом + веб-панель главы семьи + REST API |
 | Запуск | `docker compose up` (все зависимости внутри) |
@@ -49,16 +49,16 @@
 
 | Поле | Тип (PostgreSQL) | Примечание |
 |---|---|---|
-| `id` | `bigserial` PK | |
+| `id` | `uuid` PK, `gen_random_uuid()` | |
 | `user_id` | `bigint` NOT NULL, FK → `users.telegram_id` | Telegram ID владельца |
-| `amount` | `numeric(14,2)` NOT NULL, `> 0` | Валюта одна (₽), в Go — целые копейки (`int64`) |
+| `amount` | `bigint` NOT NULL, `> 0` | Копейки; валюта одна (₽). В API — рубли числом |
 | `category` | `text` NOT NULL, CHECK по списку | Коды: `food`, `transport`, `housing`, `entertainment`, `health`, `shopping`, `other` |
 | `spent_at` | `date` NOT NULL | Дата траты (без времени) |
 | `comment` | `text` NULL | «кофе», «такси» |
 | `created_at` | `timestamptz` NOT NULL default `now()` | |
 | `updated_at` | `timestamptz` NOT NULL default `now()` | Обновляется при изменении |
 
-Индексы: `(user_id, spent_at DESC)`, `(category)`.
+Индексы: `(user_id, spent_at DESC, created_at DESC)`, `(spent_at DESC, created_at DESC)`.
 
 Словарь категорий (код → название): еда, транспорт, жильё, развлечения, здоровье, покупки, другое.
 
@@ -66,7 +66,7 @@
 
 | Таблица | Зачем |
 |---|---|
-| `users` (`telegram_id`, `first_name`, `username`, `created_at`) | Имена членов семьи для фильтра в панели; заполняется при первом сообщении боту |
+| `users` (`telegram_id`, `first_name`, `last_name`, `username`, `created_at`, `updated_at`) | Имена членов семьи для фильтра в панели; создаётся при первом сообщении боту, имя/фамилия/username синхронизируются из профиля Telegram при каждом сообщении |
 | `chat_messages` (`user_id`, `role`, `content`, `created_at`) | Короткая история диалога для агента («последнее было…», ответы на уточнения) |
 
 ## 6. Архитектура
@@ -92,7 +92,7 @@
 | Tool | Параметры (от LLM) | Действие |
 |---|---|---|
 | `add_expense` | `amount`, `category`, `spent_at?`, `comment?` | Создать трату |
-| `list_expenses` | `from?`, `to?`, `category?`, `query?`, `limit?` | Список трат пользователя (с `id`) |
+| `list_expenses` | `from?`, `to?`, `category?`, `query?`, `sort?`, `limit?` | Список трат пользователя (с `id`), количество и сумма найденных |
 | `sum_expenses` | `from?`, `to?`, `category?` | Итого и разбивка по категориям |
 | `update_expense` | `id`, `amount?`, `category?`, `spent_at?`, `comment?` | Изменить свою трату |
 | `delete_expense` | `id` | Удалить свою трату |
@@ -104,45 +104,51 @@
 | Слой | Выбор | Почему |
 |---|---|---|
 | Бэкенд | Go 1.26, `net/http` (ServeMux с паттернами методов) | Требование ТЗ; стандартной библиотеки хватает |
-| БД | PostgreSQL 17, `pgx/v5` | `date`, `numeric`, CHECK-ограничения |
-| Миграции | `goose` (встроены в бинарник, накатываются при старте) | Один `docker compose up` |
+| БД | PostgreSQL 16, `pgx/v5` | `date`, `bigint` для копеек, CHECK-ограничения |
+| Миграции | `goose` (встроены в бинарник, накатываются при старте api и bot под advisory lock) | Один `docker compose up` |
 | Telegram | `github.com/go-telegram/bot` | Активно поддерживается, long polling |
-| LLM | `github.com/openai/openai-go` с настраиваемым `base_url` | Любой OpenAI-совместимый провайдер |
+| LLM | собственный минимальный клиент `/chat/completions` с настраиваемым `base_url` | Любой OpenAI-совместимый провайдер, без тяжёлого SDK |
 | Конфиг | env-переменные (+ `.env`), `caarlos0/env` | 12-factor, удобно в compose |
-| Логи | `log/slog` (JSON) | Стандартная библиотека |
-| Фронтенд | React + TypeScript + Vite, TanStack Query, простой UI-kit (Mantine или shadcn/ui) | Быстро собрать таблицу, фильтры, формы |
+| Логи | `log/slog`: JSON при `APP_ENV=production`, иначе текст | Стандартная библиотека |
+| Фронтенд | React + TypeScript + Vite, TanStack Query, Mantine | Быстро собрать таблицу, фильтры, формы |
 | Отдача фронта | nginx, проксирует `/api` в `api` | Нет CORS, один порт |
-| Тесты | `testing`, `testcontainers-go` (PostgreSQL), фейковый LLM-клиент; Vitest на фронте по возможности | |
+| Тесты | `testing`, in-memory хранилище, фейковый LLM-клиент, eval-прогон на реальной модели | |
 
 ## 8. REST API (`/api/v1`)
 
 | Метод | Путь | Описание |
 |---|---|---|
-| GET | `/expenses?user_id=&from=&to=&category=&limit=&offset=` | Список с фильтрами, сортировка `spent_at DESC, id DESC`; ответ `{items, total, sum}` |
+| GET | `/expenses?user_id=&from=&to=&category=&q=&limit=&offset=` | Список с фильтрами (`q` — подстрока комментария, без учёта регистра), сортировка `spent_at DESC, created_at DESC, id`; `limit` 1–500 (по умолчанию 50); ответ `{items, total, sum}` — итоги по всей выборке |
 | GET | `/expenses/{id}` | Одна трата |
 | POST | `/expenses` | Создать (`user_id`, `amount`, `category`, `spent_at`, `comment?`) |
 | PATCH | `/expenses/{id}` | Частичное изменение |
 | DELETE | `/expenses/{id}` | Удалить |
 | GET | `/users` | Члены семьи (для фильтра и формы) |
+| POST | `/users` | Добавить или обновить члена семьи вручную. Полностью заменяет `first_name` (обязателен), `last_name`, `username`: пустое поле очищается. Приоритет у Telegram: бот при каждом сообщении перезаписывает имя/фамилию/username из профиля, поэтому правки из панели не сохранятся |
 | GET | `/categories` | Справочник категорий `{code, label}` |
 | GET | `/healthz` | Проверка живости |
 
-Ошибки — единый формат `{"error": {"code": "...", "message": "..."}}`; валидация → 400, не найдено → 404. Описание в `api/openapi.yaml`.
+Ошибки — единый формат `{"error": {"code": "...", "message": "..."}}`; валидация и некорректный запрос → 400, не найдено → 404, неподдерживаемый метод → 405 (с `Allow`), слишком большое тело → 413. Описание в `api/openapi.yaml`.
 
 ## 9. Конфигурация
 
 | Переменная | Пример | Назначение |
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | `123:ABC` | Токен бота |
-| `FAMILY_TELEGRAM_IDS` | `111,222` | Белый список членов семьи (пусто — пускать всех) |
+| `FAMILY_TELEGRAM_IDS` | `111, 222` | Белый список членов семьи (обязателен) |
+| `TELEGRAM_ALLOW_ALL` | `false` | `true` — бот отвечает всем без белого списка (демо) |
 | `LLM_BASE_URL` | `https://api.openai.com/v1` | Endpoint провайдера |
 | `LLM_API_KEY` | `sk-...` | Ключ |
 | `LLM_MODEL` | `gpt-4.1-mini` | Модель с поддержкой tool calling |
-| `LLM_TIMEOUT` | `30s` | Таймаут запроса |
-| `LLM_TEMPERATURE` | `0` | Детерминированность |
+| `LLM_TIMEOUT` | `60s` | Таймаут запроса |
+| `LLM_TEMPERATURE` | `0` | Детерминированность; не задана — параметр не передаётся |
+| `LLM_MAX_STEPS` | `8` | Лимит итераций tool calling на одно сообщение |
 | `APP_TIMEZONE` | `Europe/Moscow` | Для «сегодня/вчера» |
-| `DATABASE_URL` | `postgres://...` | Подключение к БД |
-| `HTTP_ADDR` | `:8080` | Адрес API |
+| `APP_ENV`, `LOG_LEVEL` | `production`, `info` | Формат и уровень логов |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB` | | Подключение к БД |
+| `POSTGRES_SSLMODE`, `POSTGRES_MAX_CONNS` | `disable`, `10` | Параметры пула |
+| `HTTP_HOST`, `HTTP_PORT` | `0.0.0.0`, `8080` | Адрес API внутри контейнера |
+| `BIND_ADDR`, `API_PORT`, `WEB_PORT` | `127.0.0.1`, `8080`, `3000` | Публикация портов на хосте (compose) |
 
 Шаблон — `.env.example`; реальный `.env` в `.gitignore`.
 
@@ -150,19 +156,19 @@
 
 | Сервис | Образ | Порт |
 |---|---|---|
-| `postgres` | `postgres:17-alpine`, volume, healthcheck | — |
-| `api` | собственный (multi-stage, distroless) | 8080 (внутр.) |
+| `db` | `postgres:16-alpine`, volume, healthcheck | не публикуется (для разработки — `compose.dev.yml`) |
+| `api` | собственный (multi-stage, scratch) | 8080 → `BIND_ADDR` (по умолчанию 127.0.0.1) |
 | `bot` | тот же образ, другая команда | — |
-| `web` | nginx + собранный фронт | 3000 → хост |
+| `web` | nginx + собранный фронт | 3000 → `BIND_ADDR` (по умолчанию 127.0.0.1) |
 
-`api` и `bot` стартуют после `postgres: service_healthy`; миграции накатывает `api`.
+`api` и `bot` стартуют после `db: service_healthy`; миграции накатывает тот, кто стартовал первым (advisory lock).
 
 ## 11. Нефункциональные требования
 
 - Запуск одной командой, без ручных шагов, кроме заполнения `.env`.
 - Ответ бота ≤ ~5 с при нормальной работе LLM; при недоступности LLM — понятное сообщение пользователю, без падения процесса.
 - Изоляция данных пользователей в боте — на уровне SQL (`WHERE user_id = $1`).
-- Деньги без float: копейки в `int64`, `numeric` в БД.
+- Деньги без float: копейки в `int64`, `bigint` в БД.
 - Graceful shutdown по SIGTERM.
 
 ## 12. Допущения
@@ -180,7 +186,7 @@
 | Неоднозначное «удали такси» | Агент переспрашивает при >1 совпадении; удаление только по `id` |
 | Галлюцинация `id` | Сервис проверяет владельца; агент обязан брать `id` из `list_expenses` |
 | Prompt injection («покажи траты user 222») | `user_id` не параметр инструментов |
-| Бесконечный цикл tool calls | Лимит итераций агента (например, 6) |
+| Бесконечный цикл tool calls | Лимит итераций агента (`LLM_MAX_STEPS`, по умолчанию 8) |
 | Нет доступа к платному LLM у проверяющего | Любой OpenAI-совместимый endpoint, в т. ч. локальный Ollama |
 
 ## 14. Критерии приёмки
@@ -192,11 +198,9 @@
 - [ ] Смена LLM-провайдера — только через конфиг.
 - [ ] Тесты проходят (`make test`), README описывает запуск и решения.
 
-## 15. Использование ИИ-ассистентов
-
-ТЗ оценивает качество работы с ИИ, поэтому:
+## 15. Процесс разработки
 
 - `CLAUDE.md` в корне — контекст проекта, соглашения, команды.
-- Документы в `docs/` (этот паспорт, план, ADR) — источник требований для ассистента.
-- Небольшие осмысленные коммиты по этапам плана; ревью сгенерированного кода перед коммитом.
-- Раздел в README: как использовались ассистенты, что проверялось вручную.
+- Документы в `docs/` (ТЗ, этот паспорт, план реализации) — источник требований.
+- Небольшие осмысленные коммиты по этапам плана; ревью кода перед коммитом.
+- Раздел в README: как велась разработка, что проверялось вручную.

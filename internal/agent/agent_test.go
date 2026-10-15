@@ -1,0 +1,346 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"strings"
+	"testing"
+	"time"
+
+	"finance-ai-bot/internal/domain"
+	"finance-ai-bot/internal/llm"
+	"finance-ai-bot/internal/service"
+	"finance-ai-bot/internal/storage/memory"
+)
+
+const (
+	alice int64 = 111
+	bob   int64 = 222
+)
+
+// scriptedLLM отвечает заранее заданными шагами; каждый шаг видит историю сообщений.
+type scriptedLLM struct {
+	steps []func(msgs []llm.Message) llm.Message
+	calls int
+}
+
+func (s *scriptedLLM) Chat(_ context.Context, msgs []llm.Message, _ []llm.Tool) (llm.Message, error) {
+	if s.calls >= len(s.steps) {
+		return llm.Message{}, fmt.Errorf("unexpected llm call #%d", s.calls+1)
+	}
+	step := s.steps[s.calls]
+	s.calls++
+	return step(msgs), nil
+}
+
+func toolCall(name string, args any) func([]llm.Message) llm.Message {
+	return func([]llm.Message) llm.Message {
+		data, _ := json.Marshal(args)
+		return llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+			ID: "call_" + name, Type: "function",
+			Function: llm.FunctionCall{Name: name, Arguments: string(data)},
+		}}}
+	}
+}
+
+func say(text string) func([]llm.Message) llm.Message {
+	return func([]llm.Message) llm.Message { return llm.Message{Role: llm.RoleAssistant, Content: text} }
+}
+
+type fixture struct {
+	agent    *Agent
+	expenses *service.Expenses
+	llm      *scriptedLLM
+}
+
+func newFixture(t *testing.T, steps ...func([]llm.Message) llm.Message) *fixture {
+	t.Helper()
+	store := memory.New()
+	users := service.NewUsers(store.Users())
+	for _, id := range []int64{alice, bob} {
+		if _, err := users.Upsert(context.Background(), domain.User{TelegramID: id, FirstName: "u"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	expenses := service.NewExpenses(store.Expenses(), time.UTC)
+	client := &scriptedLLM{steps: steps}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	return &fixture{
+		agent:    New(client, expenses, Config{Location: time.UTC, MaxSteps: 4}, log),
+		expenses: expenses,
+		llm:      client,
+	}
+}
+
+func lastToolResult(msgs []llm.Message) map[string]any {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == llm.RoleTool {
+			var out map[string]any
+			_ = json.Unmarshal([]byte(msgs[i].Content), &out)
+			return out
+		}
+	}
+	return nil
+}
+
+func TestAddExpense(t *testing.T) {
+	f := newFixture(t,
+		toolCall(toolAdd, map[string]any{"amount": 350, "category": "food", "comment": "кофе"}),
+		say("Записал: кофе — 350 ₽ (еда), сегодня"),
+	)
+	reply, err := f.agent.Reply(context.Background(), alice, nil, "кофе 350")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(reply, "Записал") {
+		t.Errorf("reply = %q", reply)
+	}
+
+	res, err := f.expenses.List(context.Background(), service.UserScope(alice), domain.ExpenseFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Items) != 1 {
+		t.Fatalf("got %d expenses, want 1", len(res.Items))
+	}
+	e := res.Items[0]
+	if e.Amount != 35000 || e.Category != domain.CategoryFood || e.Comment != "кофе" || !e.SpentAt.Equal(f.expenses.Today()) {
+		t.Errorf("unexpected expense: %+v", e)
+	}
+}
+
+// Модель не может изменить чужую трату, даже если узнала её id.
+func TestCannotTouchForeignExpense(t *testing.T) {
+	f := newFixture(t)
+	foreign, err := f.expenses.Create(context.Background(), service.UserScope(bob), service.NewExpense{
+		Amount: 120000, Category: domain.CategoryTransport, Comment: "такси",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var results []map[string]any
+	f.llm.steps = []func([]llm.Message) llm.Message{
+		toolCall(toolUpdate, map[string]any{"id": foreign.ID.String(), "amount": 1}),
+		func(msgs []llm.Message) llm.Message {
+			results = append(results, lastToolResult(msgs))
+			return toolCall(toolDelete, map[string]any{"id": foreign.ID.String()})(msgs)
+		},
+		func(msgs []llm.Message) llm.Message {
+			results = append(results, lastToolResult(msgs))
+			return say("Не нашёл такую трату")(msgs)
+		},
+	}
+	if _, err := f.agent.Reply(context.Background(), alice, nil, "удали такси"); err != nil {
+		t.Fatal(err)
+	}
+
+	for i, r := range results {
+		if r["error"] != "трата не найдена" {
+			t.Errorf("tool result #%d = %v, want not found", i, r)
+		}
+	}
+	got, err := f.expenses.Get(context.Background(), service.UserScope(bob), foreign.ID)
+	if err != nil || got.Amount != 120000 {
+		t.Errorf("foreign expense changed: %+v, %v", got, err)
+	}
+}
+
+func TestUpdateLastExpense(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	scope := service.UserScope(alice)
+	for _, c := range []string{"такси", "кофе"} {
+		if _, err := f.expenses.Create(ctx, scope, service.NewExpense{Amount: 35000, Category: domain.CategoryFood, Comment: c}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var lastID string
+	f.llm.steps = []func([]llm.Message) llm.Message{
+		toolCall(toolList, map[string]any{"sort": "created_at", "limit": 1}),
+		func(msgs []llm.Message) llm.Message {
+			items := lastToolResult(msgs)["items"].([]any)
+			if len(items) != 1 {
+				t.Fatalf("list returned %d items", len(items))
+			}
+			item := items[0].(map[string]any)
+			if item["comment"] != "кофе" {
+				t.Errorf("last added = %v, want кофе", item["comment"])
+			}
+			lastID = item["id"].(string)
+			return toolCall(toolUpdate, map[string]any{"id": lastID, "amount": 450})(msgs)
+		},
+		say("Исправил: кофе — 450 ₽"),
+	}
+	if _, err := f.agent.Reply(ctx, alice, nil, "последнее было не 350, а 450"); err != nil {
+		t.Fatal(err)
+	}
+
+	res, _ := f.expenses.List(ctx, scope, domain.ExpenseFilter{Query: "кофе"})
+	if res.Items[0].Amount != 45000 {
+		t.Errorf("amount = %v, want 450 ₽", res.Items[0].Amount)
+	}
+}
+
+func TestToolErrorsAreReportedToModel(t *testing.T) {
+	var result map[string]any
+	f := newFixture(t,
+		toolCall(toolAdd, map[string]any{"amount": -5, "category": "food"}),
+		func(msgs []llm.Message) llm.Message {
+			result = lastToolResult(msgs)
+			return say("Сумма должна быть больше нуля")(msgs)
+		},
+	)
+	if _, err := f.agent.Reply(context.Background(), alice, nil, "кофе -5"); err != nil {
+		t.Fatal(err)
+	}
+	if msg, _ := result["error"].(string); !strings.Contains(msg, "amount") {
+		t.Errorf("tool result = %v, want amount validation error", result)
+	}
+}
+
+func TestStepLimit(t *testing.T) {
+	loop := toolCall(toolList, map[string]any{})
+	f := newFixture(t, loop, loop, loop, loop, loop)
+	reply, err := f.agent.Reply(context.Background(), alice, nil, "покажи траты")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply != fallbackReply {
+		t.Errorf("reply = %q, want fallback", reply)
+	}
+	if f.llm.calls != 4 {
+		t.Errorf("llm calls = %d, want MaxSteps=4", f.llm.calls)
+	}
+}
+
+func TestHistoryIsPassed(t *testing.T) {
+	var seen []llm.Message
+	f := newFixture(t, func(msgs []llm.Message) llm.Message {
+		seen = msgs
+		return say("ok")(msgs)
+	})
+	history := []domain.ChatMessage{
+		{Role: domain.ChatRoleUser, Content: "удали такси"},
+		{Role: domain.ChatRoleAssistant, Content: "Какое такси удалить?"},
+	}
+	if _, err := f.agent.Reply(context.Background(), alice, history, "первое"); err != nil {
+		t.Fatal(err)
+	}
+	roles := make([]string, len(seen))
+	for i, m := range seen {
+		roles[i] = m.Role
+	}
+	want := "system,user,assistant,user"
+	if got := strings.Join(roles, ","); got != want {
+		t.Errorf("roles = %s, want %s", got, want)
+	}
+}
+
+func TestSystemPromptCalendar(t *testing.T) {
+	msk, err := time.LoadLocation("Europe/Moscow")
+	if err != nil {
+		t.Skip("no tzdata")
+	}
+	// 23:30 UTC 15 октября — в Москве уже пятница, 16 октября.
+	now := time.Date(2026, 10, 15, 23, 30, 0, 0, time.UTC)
+	p := systemPrompt(now, msk)
+	for _, want := range []string{
+		"сегодня: 2026-10-16 (пятница)",
+		"вчера: 2026-10-15",
+		"эта неделя: 2026-10-12 — 2026-10-18",
+		"прошлая неделя: 2026-10-05 — 2026-10-11",
+		"этот месяц: 2026-10-01 — 2026-10-31",
+		"прошлый месяц: 2026-09-01 — 2026-09-30",
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt missing %q", want)
+		}
+	}
+}
+
+// Модели часто присылают все поля схемы с пустыми значениями — они не должны затирать данные.
+func TestUpdateIgnoresEmptyFields(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	e, err := f.expenses.Create(ctx, service.UserScope(alice), service.NewExpense{
+		Amount: 35000, Category: domain.CategoryFood, Comment: "кофе",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.llm.steps = []func([]llm.Message) llm.Message{
+		toolCall(toolUpdate, map[string]any{"id": e.ID.String(), "amount": "450", "category": "", "spent_at": "", "comment": ""}),
+		say("Исправил"),
+	}
+	if _, err := f.agent.Reply(ctx, alice, nil, "последнее было не 350, а 450"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := f.expenses.Get(ctx, service.UserScope(alice), e.ID)
+	if got.Amount != 45000 || got.Comment != "кофе" || got.Category != domain.CategoryFood || !got.SpentAt.Equal(e.SpentAt) {
+		t.Errorf("after update: %+v", got)
+	}
+}
+
+// Если LLM упала после записи, пользователь узнаёт о сохранённой трате, а не получает ошибку.
+func TestReportsChangesWhenLLMFails(t *testing.T) {
+	f := newFixture(t,
+		toolCall(toolAdd, map[string]any{"amount": "1 200,50", "category": "transport", "comment": "такси"}),
+		// следующего шага нет — scriptedLLM вернёт ошибку
+	)
+	reply, err := f.agent.Reply(context.Background(), alice, nil, "такси 1200,50")
+	if err != nil {
+		t.Fatalf("err = %v, want summary reply", err)
+	}
+	if !strings.Contains(reply, "записал: такси — 1 200,50 ₽ (транспорт)") {
+		t.Errorf("reply = %q", reply)
+	}
+}
+
+func TestReportsChangesOnStepLimit(t *testing.T) {
+	add := toolCall(toolAdd, map[string]any{"amount": 350, "category": "food", "comment": "кофе"})
+	list := toolCall(toolList, map[string]any{})
+	f := newFixture(t, add, list, list, list)
+	reply, err := f.agent.Reply(context.Background(), alice, nil, "кофе 350")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(reply, "записал: кофе") {
+		t.Errorf("reply = %q", reply)
+	}
+}
+
+func TestLLMErrorWithoutChanges(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.agent.Reply(context.Background(), alice, nil, "кофе 350"); err == nil {
+		t.Fatal("want error when nothing was done")
+	}
+}
+
+func TestNormalizeToolCall(t *testing.T) {
+	var seen []llm.Message
+	f := newFixture(t,
+		func([]llm.Message) llm.Message {
+			return llm.Message{ToolCalls: []llm.ToolCall{{Function: llm.FunctionCall{Name: toolList, Arguments: `{"limit": 5.0}`}}}}
+		},
+		func(msgs []llm.Message) llm.Message {
+			seen = msgs
+			return say("ok")(msgs)
+		},
+	)
+	if _, err := f.agent.Reply(context.Background(), alice, nil, "покажи траты"); err != nil {
+		t.Fatal(err)
+	}
+	call := seen[len(seen)-2].ToolCalls[0]
+	result := seen[len(seen)-1]
+	if call.ID == "" || call.Type != "function" || result.ToolCallID != call.ID {
+		t.Errorf("call = %+v, tool result id = %q", call, result.ToolCallID)
+	}
+	if strings.Contains(result.Content, "error") {
+		t.Errorf("limit 5.0 rejected: %s", result.Content)
+	}
+}

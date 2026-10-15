@@ -12,16 +12,20 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY . .
 
+# Миграции и tzdata встроены в бинарники, отдельные файлы в образе не нужны.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /main ./cmd/api
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/api ./cmd/api && \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/bot ./cmd/bot
 
 FROM scratch
 
-COPY --from=builder /main /main
-COPY migrations migrations
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /out/api /out/bot /
+
+USER 65534:65534
 
 EXPOSE 8080
 
-ENTRYPOINT ["/main"]
+# Образ общий для api и bot; bot запускается с entrypoint ["/bot"].
+ENTRYPOINT ["/api"]

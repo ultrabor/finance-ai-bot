@@ -14,39 +14,48 @@ type Money int64
 // MaxMoney — верхняя граница одной траты (100 млн ₽), защита от опечаток и переполнений.
 const MaxMoney Money = 100_000_000_00
 
-var errInvalidMoney = errors.New("invalid amount")
+var (
+	errInvalidMoney = errors.New("invalid amount")
+	// ErrMoneyTooLarge — сумма корректна по формату, но больше MaxMoney.
+	ErrMoneyTooLarge = errors.New("amount is too large")
+)
 
 // ParseMoney разбирает десятичную строку в рублях: "350", "350.5", "1200,90".
+// Допускаются только цифры и один разделитель; знак не принимается.
 func ParseMoney(s string) (Money, error) {
 	s = strings.ReplaceAll(strings.TrimSpace(s), ",", ".")
-	if s == "" {
-		return 0, errInvalidMoney
-	}
-	neg := strings.HasPrefix(s, "-")
-	s = strings.TrimPrefix(s, "-")
-
 	whole, frac, hasFrac := strings.Cut(s, ".")
-	if whole == "" || (hasFrac && (frac == "" || len(frac) > 2)) {
+	if !isDigits(whole) || (hasFrac && (!isDigits(frac) || len(frac) > 2)) {
 		return 0, errInvalidMoney
 	}
+	// Только цифры, поэтому ошибка ParseInt здесь — переполнение.
 	rub, err := strconv.ParseInt(whole, 10, 64)
 	if err != nil || rub > int64(MaxMoney/100) {
-		return 0, errInvalidMoney
+		return 0, ErrMoneyTooLarge
 	}
 	var kop int64
 	if hasFrac {
 		if len(frac) == 1 {
 			frac += "0"
 		}
-		if kop, err = strconv.ParseInt(frac, 10, 64); err != nil || kop < 0 {
-			return 0, errInvalidMoney
+		kop, _ = strconv.ParseInt(frac, 10, 64)
+	}
+	if m := Money(rub*100 + kop); m <= MaxMoney {
+		return m, nil
+	}
+	return 0, ErrMoneyTooLarge
+}
+
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
 		}
 	}
-	m := Money(rub*100 + kop)
-	if neg {
-		m = -m
-	}
-	return m, nil
+	return true
 }
 
 // MoneyFromFloat переводит рубли (например, из аргументов LLM) в копейки с округлением.
