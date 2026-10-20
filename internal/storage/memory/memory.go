@@ -176,7 +176,10 @@ func (r *UserRepo) List(_ context.Context) ([]domain.User, error) {
 	}
 	// Тот же порядок, что в postgres.UserRepo.List.
 	slices.SortFunc(out, func(a, b domain.User) int {
-		return cmp.Or(cmp.Compare(a.FirstName, b.FirstName), cmp.Compare(a.TelegramID, b.TelegramID))
+		return cmp.Or(
+			cmp.Compare(strings.ToLower(a.FirstName), strings.ToLower(b.FirstName)),
+			cmp.Compare(a.TelegramID, b.TelegramID),
+		)
 	})
 	return out, nil
 }

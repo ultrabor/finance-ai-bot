@@ -39,7 +39,9 @@ func (r *UserRepo) Upsert(ctx context.Context, u domain.User) (domain.User, erro
 func (r *UserRepo) List(ctx context.Context) ([]domain.User, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT telegram_id, COALESCE(username, ''), first_name, COALESCE(last_name, ''), created_at
-		FROM users ORDER BY first_name, telegram_id`)
+		FROM users
+		-- Без учёта регистра и побайтово (C): порядок не зависит от локали БД и совпадает с memory.
+		ORDER BY lower(first_name) COLLATE "C", telegram_id`)
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}
