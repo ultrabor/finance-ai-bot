@@ -144,17 +144,16 @@ func (r *ExpenseRepo) Update(ctx context.Context, id uuid.UUID, ownerID *int64, 
 	return e, nil
 }
 
-func (r *ExpenseRepo) Delete(ctx context.Context, id uuid.UUID, ownerID *int64) error {
-	tag, err := r.pool.Exec(ctx, `
-		DELETE FROM expenses WHERE id = $1 AND ($2::bigint IS NULL OR user_id = $2)`,
+func (r *ExpenseRepo) Delete(ctx context.Context, id uuid.UUID, ownerID *int64) (domain.Expense, error) {
+	row := r.pool.QueryRow(ctx, `
+		DELETE FROM expenses WHERE id = $1 AND ($2::bigint IS NULL OR user_id = $2)
+		RETURNING `+expenseColumns,
 		id, ownerID)
+	e, err := scanExpense(row)
 	if err != nil {
-		return fmt.Errorf("delete expense: %w", err)
+		return domain.Expense{}, mapError(err)
 	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+	return e, nil
 }
 
 func buildWhere(f domain.ExpenseFilter) (string, []any) {

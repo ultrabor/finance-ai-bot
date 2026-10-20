@@ -100,7 +100,7 @@ func TestExpenseCRUDAndOwnership(t *testing.T) {
 	if _, err := db.expenses.Update(ctx, e.ID, &db.bob, domain.ExpensePatch{Amount: &amount}); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("foreign update: %v", err)
 	}
-	if err := db.expenses.Delete(ctx, e.ID, &db.bob); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := db.expenses.Delete(ctx, e.ID, &db.bob); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("foreign delete: %v", err)
 	}
 
@@ -119,8 +119,8 @@ func TestExpenseCRUDAndOwnership(t *testing.T) {
 		t.Fatalf("clear comment: %+v, %v", got, err)
 	}
 
-	if err := db.expenses.Delete(ctx, e.ID, &db.alice); err != nil {
-		t.Fatal(err)
+	if deleted, err := db.expenses.Delete(ctx, e.ID, &db.alice); err != nil || deleted.ID != e.ID || deleted.Amount != 45000 {
+		t.Fatalf("delete: %+v, %v", deleted, err)
 	}
 	if _, err := db.expenses.Get(ctx, e.ID, nil); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("after delete: %v", err)

@@ -356,12 +356,9 @@ func (a *Agent) delete(ctx context.Context, scope service.Scope, done *journal, 
 	if err != nil {
 		return nil, err
 	}
-	// Читаем трату до удаления, чтобы модель могла назвать, что именно удалено.
-	e, err := a.expenses.Get(ctx, scope, id)
+	// Удалённая трата возвращается, чтобы модель могла назвать, что именно удалено.
+	e, err := a.expenses.Delete(ctx, scope, id)
 	if err != nil {
-		return nil, err
-	}
-	if err := a.expenses.Delete(ctx, scope, id); err != nil {
 		return nil, err
 	}
 	done.record("удалил", e)

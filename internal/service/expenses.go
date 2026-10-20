@@ -27,7 +27,8 @@ type ExpenseRepository interface {
 	List(ctx context.Context, f domain.ExpenseFilter) ([]domain.Expense, domain.ExpenseSummary, error)
 	Summary(ctx context.Context, f domain.ExpenseFilter) (domain.ExpenseSummary, error)
 	Update(ctx context.Context, id uuid.UUID, ownerID *int64, p domain.ExpensePatch) (domain.Expense, error)
-	Delete(ctx context.Context, id uuid.UUID, ownerID *int64) error
+	// Delete возвращает удалённую трату.
+	Delete(ctx context.Context, id uuid.UUID, ownerID *int64) (domain.Expense, error)
 }
 
 type Expenses struct {
@@ -173,10 +174,11 @@ func (s *Expenses) Update(ctx context.Context, scope Scope, id uuid.UUID, p doma
 	return s.repo.Update(ctx, id, owner, p)
 }
 
-func (s *Expenses) Delete(ctx context.Context, scope Scope, id uuid.UUID) error {
+// Delete удаляет трату и возвращает её, чтобы вызывающий мог назвать, что удалено.
+func (s *Expenses) Delete(ctx context.Context, scope Scope, id uuid.UUID) (domain.Expense, error) {
 	owner, err := scope.owner()
 	if err != nil {
-		return err
+		return domain.Expense{}, err
 	}
 	return s.repo.Delete(ctx, id, owner)
 }

@@ -119,7 +119,7 @@ func (h *Handler) deleteExpense(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	if err := h.expenses.Delete(r.Context(), service.FamilyScope(), id); err != nil {
+	if _, err := h.expenses.Delete(r.Context(), service.FamilyScope(), id); err != nil {
 		h.writeError(w, r, err)
 		return
 	}

@@ -51,7 +51,7 @@ func TestUserScopeIsolation(t *testing.T) {
 	if _, err := svc.Update(ctx, aliceScope, bobs.ID, domain.ExpensePatch{Amount: &amount}); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("Update foreign: err = %v, want ErrNotFound", err)
 	}
-	if err := svc.Delete(ctx, aliceScope, bobs.ID); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := svc.Delete(ctx, aliceScope, bobs.ID); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("Delete foreign: err = %v, want ErrNotFound", err)
 	}
 

@@ -144,15 +144,15 @@ func (r *ExpenseRepo) Update(_ context.Context, id uuid.UUID, ownerID *int64, p 
 	return e, nil
 }
 
-func (r *ExpenseRepo) Delete(_ context.Context, id uuid.UUID, ownerID *int64) error {
+func (r *ExpenseRepo) Delete(_ context.Context, id uuid.UUID, ownerID *int64) (domain.Expense, error) {
 	r.s.mu.Lock()
 	defer r.s.mu.Unlock()
 	e, ok := r.s.expenses[id]
 	if !ok || (ownerID != nil && e.UserID != *ownerID) {
-		return domain.ErrNotFound
+		return domain.Expense{}, domain.ErrNotFound
 	}
 	delete(r.s.expenses, id)
-	return nil
+	return e, nil
 }
 
 func (r *UserRepo) Upsert(_ context.Context, u domain.User) (domain.User, error) {
