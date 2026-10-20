@@ -25,7 +25,14 @@ type evalTurn struct {
 	check func(t *testing.T, reply string, all []domain.Expense, today time.Time)
 }
 
-func TestEval(t *testing.T) {
+// evalEnv — агент на реальной LLM поверх хранилища в памяти.
+type evalEnv struct {
+	agent    *Agent
+	expenses *service.Expenses
+}
+
+func newEvalEnv(t *testing.T) evalEnv {
+	t.Helper()
 	model := os.Getenv("LLM_MODEL")
 	if model == "" {
 		t.Skip("LLM_MODEL is not set")
@@ -49,10 +56,11 @@ func TestEval(t *testing.T) {
 
 	store := memory.New()
 	ctx := context.Background()
-	if _, err := service.NewUsers(store.Users()).Upsert(ctx, domain.User{TelegramID: alice, FirstName: "Алиса"}); err != nil {
+	users := service.NewUsers(store.Users())
+	if _, err := users.Upsert(ctx, domain.User{TelegramID: alice, FirstName: "Алиса"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.NewUsers(store.Users()).Upsert(ctx, domain.User{TelegramID: bob, FirstName: "Боб"}); err != nil {
+	if _, err := users.Upsert(ctx, domain.User{TelegramID: bob, FirstName: "Боб"}); err != nil {
 		t.Fatal(err)
 	}
 	expenses := service.NewExpenses(store.Expenses(), loc)
@@ -64,28 +72,57 @@ func TestEval(t *testing.T) {
 	}
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	a := New(client, expenses, Config{Location: loc, MaxSteps: 8}, log)
+	return evalEnv{agent: New(client, expenses, Config{Location: loc, MaxSteps: 8}, log), expenses: expenses}
+}
 
-	find := func(all []domain.Expense, comment string) *domain.Expense {
-		for i := range all {
-			if strings.Contains(all[i].Comment, comment) {
-				return &all[i]
+// run проигрывает диалог Алисы и после каждой реплики проверяет её траты.
+func (env evalEnv) run(t *testing.T, turns []evalTurn) {
+	ctx := context.Background()
+	var history []domain.ChatMessage
+	for _, turn := range turns {
+		t.Run(turn.say, func(t *testing.T) {
+			// «Сегодня» фиксируем до запроса, чтобы прогон около полуночи не давал ложных падений.
+			today := env.expenses.Today()
+			reply, err := env.agent.Reply(ctx, alice, history, turn.say)
+			if err != nil {
+				t.Fatal(err)
 			}
-		}
-		return nil
-	}
-	contains := func(t *testing.T, reply string, variants ...string) {
-		t.Helper()
-		norm := strings.ReplaceAll(reply, " ", " ")
-		for _, v := range variants {
-			if strings.Contains(norm, v) {
-				return
-			}
-		}
-		t.Errorf("reply %q contains none of %q", reply, variants)
-	}
+			t.Logf("> %s\n< %s", turn.say, reply)
+			history = append(history,
+				domain.ChatMessage{Role: domain.ChatRoleUser, Content: turn.say},
+				domain.ChatMessage{Role: domain.ChatRoleAssistant, Content: reply})
 
-	turns := []evalTurn{
+			res, err := env.expenses.List(ctx, service.UserScope(alice), domain.ExpenseFilter{Limit: 100})
+			if err != nil {
+				t.Fatal(err)
+			}
+			turn.check(t, reply, res.Items, today)
+		})
+	}
+}
+
+func find(all []domain.Expense, comment string) *domain.Expense {
+	for i := range all {
+		if strings.Contains(all[i].Comment, comment) {
+			return &all[i]
+		}
+	}
+	return nil
+}
+
+func contains(t *testing.T, reply string, variants ...string) {
+	t.Helper()
+	norm := strings.ReplaceAll(reply, " ", " ")
+	for _, v := range variants {
+		if strings.Contains(norm, v) {
+			return
+		}
+	}
+	t.Errorf("reply %q contains none of %q", reply, variants)
+}
+
+func TestEval(t *testing.T) {
+	newEvalEnv(t).run(t, []evalTurn{
 		{"кофе 350", func(t *testing.T, _ string, all []domain.Expense, today time.Time) {
 			e := find(all, "кофе")
 			if e == nil || e.Amount != 35000 || e.Category != domain.CategoryFood || !e.SpentAt.Equal(today) {
@@ -129,27 +166,33 @@ func TestEval(t *testing.T) {
 				t.Errorf("expenses left = %d, want 2", len(all))
 			}
 		}},
-	}
+	})
+}
 
-	var history []domain.ChatMessage
-	for _, turn := range turns {
-		t.Run(turn.say, func(t *testing.T) {
-			// «Сегодня» фиксируем до запроса, чтобы прогон около полуночи не давал ложных падений.
-			today := expenses.Today()
-			reply, err := a.Reply(ctx, alice, history, turn.say)
-			if err != nil {
-				t.Fatal(err)
+// Две подходящие траты: агент должен переспросить, а после ответа удалить нужную.
+func TestEvalDeleteAmbiguous(t *testing.T) {
+	newEvalEnv(t).run(t, []evalTurn{
+		{"такси 1200 вчера", func(t *testing.T, _ string, all []domain.Expense, _ time.Time) {
+			if len(all) != 1 {
+				t.Errorf("expenses = %d, want 1", len(all))
 			}
-			t.Logf("> %s\n< %s", turn.say, reply)
-			history = append(history,
-				domain.ChatMessage{Role: domain.ChatRoleUser, Content: turn.say},
-				domain.ChatMessage{Role: domain.ChatRoleAssistant, Content: reply})
-
-			res, err := expenses.List(ctx, service.UserScope(alice), domain.ExpenseFilter{Limit: 100})
-			if err != nil {
-				t.Fatal(err)
+		}},
+		{"такси до работы 800", func(t *testing.T, _ string, all []domain.Expense, _ time.Time) {
+			if len(all) != 2 {
+				t.Errorf("expenses = %d, want 2", len(all))
 			}
-			turn.check(t, reply, res.Items, today)
-		})
-	}
+		}},
+		{"удали такси", func(t *testing.T, reply string, all []domain.Expense, _ time.Time) {
+			if len(all) != 2 {
+				t.Fatalf("deleted without asking: %d left", len(all))
+			}
+			contains(t, reply, "800")
+			contains(t, reply, "1200", "1 200")
+		}},
+		{"то, что за 800", func(t *testing.T, _ string, all []domain.Expense, _ time.Time) {
+			if len(all) != 1 || all[0].Amount != 120000 {
+				t.Errorf("want only the 1 200 ₽ taxi left, got %+v", all)
+			}
+		}},
+	})
 }
