@@ -21,8 +21,14 @@ func NewChatRepo(pool *pgxpool.Pool) *ChatRepo {
 	return &ChatRepo{pool: pool}
 }
 
+// chatRetention — сколько хранить историю: агенту нужны минуты, остальное — для разбора жалоб.
+const chatRetention = "7 days"
+
+// Append сохраняет реплики и заодно удаляет устаревшие реплики пользователя, чтобы таблица не росла бесконечно.
 func (r *ChatRepo) Append(ctx context.Context, userID int64, msgs ...domain.ChatMessage) error {
 	batch := &pgx.Batch{}
+	batch.Queue(`DELETE FROM chat_messages WHERE user_id = $1 AND created_at < now() - $2::interval`,
+		userID, chatRetention)
 	for _, m := range msgs {
 		batch.Queue(`INSERT INTO chat_messages (user_id, role, content) VALUES ($1, $2, $3)`,
 			userID, m.Role, m.Content)

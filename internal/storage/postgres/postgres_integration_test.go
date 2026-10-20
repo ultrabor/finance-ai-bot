@@ -228,3 +228,32 @@ func TestUsersAndChat(t *testing.T) {
 		t.Errorf("bob sees alice's history: %+v", msgs)
 	}
 }
+
+func TestChatRetention(t *testing.T) {
+	db := setup(t)
+	ctx := context.Background()
+
+	for _, id := range []int64{db.alice, db.bob} {
+		if _, err := db.pool.Exec(ctx, `INSERT INTO chat_messages (user_id, role, content, created_at)
+			VALUES ($1, 'user', 'старое', now() - interval '8 days')`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.chat.Append(ctx, db.alice, domain.ChatMessage{Role: domain.ChatRoleUser, Content: "новое"}); err != nil {
+		t.Fatal(err)
+	}
+
+	count := func(id int64) (n int) {
+		if err := db.pool.QueryRow(ctx, `SELECT count(*) FROM chat_messages WHERE user_id = $1`, id).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count(db.alice); n != 1 {
+		t.Errorf("alice messages = %d, want 1 (old one removed)", n)
+	}
+	// Чистка затрагивает только автора новой реплики.
+	if n := count(db.bob); n != 1 {
+		t.Errorf("bob messages = %d, want 1", n)
+	}
+}
