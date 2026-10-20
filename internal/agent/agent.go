@@ -13,7 +13,17 @@ import (
 	"finance-ai-bot/internal/service"
 )
 
-const fallbackReply = "Не получилось обработать запрос. Попробуйте сформулировать иначе, например: «кофе 350»."
+const (
+	fallbackReply = "Не получилось обработать запрос. Попробуйте сформулировать иначе, например: «кофе 350»."
+	// unconfirmedReply — модель дважды заявила об изменении, не вызвав инструмент.
+	unconfirmedReply = "Ничего не сохранено: не получилось выполнить запрос. Попробуйте ещё раз, например: «такси 1200 вчера»."
+	// unconfirmedNudge — подсказка модели, которая ответила «Записал…» без вызова инструмента.
+	unconfirmedNudge = "Ты ответил, что изменил траты, но в этом ходе не вызвал ни одного инструмента — ничего не сохранено. " +
+		"Если пользователь просит записать, изменить или удалить трату, вызови нужный инструмент. Если данных не хватает — переспроси."
+)
+
+// changeVerbs — начала ответов, которыми модель подтверждает изменение трат.
+var changeVerbs = []string{"записал", "изменил", "исправил", "удалил"}
 
 type Agent struct {
 	llm      llm.Client
@@ -56,7 +66,10 @@ func (a *Agent) Reply(ctx context.Context, userID int64, history []domain.ChatMe
 	}
 	msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: text})
 
-	var done journal
+	var (
+		done   journal
+		nudged bool
+	)
 	for step := range a.maxSteps {
 		resp, err := a.llm.Chat(ctx, msgs, a.tools)
 		if err != nil {
@@ -72,11 +85,12 @@ func (a *Agent) Reply(ctx context.Context, userID int64, history []domain.ChatMe
 		msgs = append(msgs, resp)
 
 		if len(resp.ToolCalls) == 0 {
-			reply := strings.TrimSpace(resp.Content)
-			if reply == "" {
-				return done.summaryOr(fallbackReply), nil
+			if reply, final := a.textReply(ctx, userID, resp.Content, &done, nudged); final {
+				return reply, nil
 			}
-			return reply, nil
+			nudged = true
+			msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: unconfirmedNudge})
+			continue
 		}
 
 		for i := range resp.ToolCalls {
@@ -91,6 +105,37 @@ func (a *Agent) Reply(ctx context.Context, userID int64, history []domain.ChatMe
 
 	a.log.WarnContext(ctx, "agent step limit reached", "user_id", userID, "max_steps", a.maxSteps)
 	return done.summaryOr(fallbackReply), nil
+}
+
+// textReply разбирает ответ модели без вызовов инструментов.
+// final == false — модель заявила об изменении, которого не было, и ей нужна ещё попытка.
+func (a *Agent) textReply(ctx context.Context, userID int64, content string, done *journal, nudged bool) (reply string, final bool) {
+	reply = strings.TrimSpace(content)
+	switch {
+	case reply == "":
+		return done.summaryOr(fallbackReply), true
+	// Модель может скопировать «Записал…» из истории, ничего не сохранив.
+	case !done.empty() || !claimsChange(reply):
+		return reply, true
+	case nudged:
+		a.log.WarnContext(ctx, "model claimed a change without calling a tool", "user_id", userID)
+		return unconfirmedReply, true
+	}
+	return "", false
+}
+
+// claimsChange — ответ начинается с подтверждения изменения («Записал…», «Готово, удалил…»).
+func claimsChange(reply string) bool {
+	s := strings.ToLower(strings.TrimSpace(reply))
+	if rest, ok := strings.CutPrefix(s, "готово"); ok {
+		s = strings.TrimLeft(rest, " ,.!:—-")
+	}
+	for _, v := range changeVerbs {
+		if strings.HasPrefix(s, v) {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeToolCall дополняет поля, которые некоторые совместимые провайдеры не присылают,

@@ -314,6 +314,84 @@ func TestReportsChangesOnStepLimit(t *testing.T) {
 	}
 }
 
+// Модель скопировала «Записал…» из истории, не вызвав инструмент: агент просит её
+// сохранить трату по-настоящему, и пользователь получает правдивый ответ.
+func TestUnconfirmedChangeIsRetried(t *testing.T) {
+	var nudged bool
+	f := newFixture(t,
+		say("Записал: такси — 1 200 ₽ (транспорт), вчера"),
+		func(msgs []llm.Message) llm.Message {
+			last := msgs[len(msgs)-1]
+			nudged = last.Role == llm.RoleSystem && strings.Contains(last.Content, "ничего не сохранено")
+			return toolCall(toolAdd, map[string]any{"amount": 1200, "category": "transport", "comment": "такси"})(msgs)
+		},
+		say("Записал: такси — 1 200 ₽ (транспорт), сегодня"),
+	)
+	reply, err := f.agent.Reply(context.Background(), alice, nil, "такси 1200")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !nudged {
+		t.Error("model was not told that nothing was saved")
+	}
+	if !strings.HasPrefix(reply, "Записал: такси") {
+		t.Errorf("reply = %q", reply)
+	}
+	res, err := f.expenses.List(context.Background(), service.UserScope(alice), domain.ExpenseFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Items) != 1 {
+		t.Fatalf("got %d expenses, want 1", len(res.Items))
+	}
+}
+
+// Если модель и после подсказки только утверждает, что сохранила, — не обманываем пользователя.
+func TestUnconfirmedChangeIsNotReported(t *testing.T) {
+	f := newFixture(t,
+		say("Записал: такси — 1 200 ₽ (транспорт), вчера"),
+		say("Записал: такси — 1 200 ₽ (транспорт), вчера"),
+	)
+	reply, err := f.agent.Reply(context.Background(), alice, nil, "такси 1200")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply != unconfirmedReply {
+		t.Errorf("reply = %q, want %q", reply, unconfirmedReply)
+	}
+}
+
+// Ответ без заявления об изменении не перепроверяется: лишнего запроса к LLM нет.
+func TestPlainReplyIsNotRetried(t *testing.T) {
+	f := newFixture(t, say("Сколько стоило такси?"))
+	reply, err := f.agent.Reply(context.Background(), alice, nil, "такси")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply != "Сколько стоило такси?" || f.llm.calls != 1 {
+		t.Errorf("reply = %q, calls = %d", reply, f.llm.calls)
+	}
+}
+
+func TestClaimsChange(t *testing.T) {
+	cases := map[string]bool{
+		"Записал: кофе — 350 ₽ (еда), сегодня": true,
+		"записала кофе":                        true,
+		"Изменил: кофе — 450 ₽":                true,
+		"Исправил сумму на 450 ₽":              true,
+		"Удалил: такси — 1 200 ₽":              true,
+		"Готово, удалил такси":                 true,
+		"Не нашёл такси, ничего не удалил":     false,
+		"В этом месяце на еду 350 ₽":           false,
+		"Сколько стоило такси?":                false,
+	}
+	for text, want := range cases {
+		if got := claimsChange(text); got != want {
+			t.Errorf("claimsChange(%q) = %v, want %v", text, got, want)
+		}
+	}
+}
+
 func TestLLMErrorWithoutChanges(t *testing.T) {
 	f := newFixture(t)
 	if _, err := f.agent.Reply(context.Background(), alice, nil, "кофе 350"); err == nil {
