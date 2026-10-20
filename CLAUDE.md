@@ -5,7 +5,7 @@ Family expense tracker: Telegram bot with an LLM agent + web panel + REST API. G
 ## Commands
 
 - `make test` — Go tests with race detector (no DB/LLM needed; uses `internal/storage/memory`)
-- `make db && make test-integration` — SQL repository tests on real Postgres (`-tags=integration`)
+- `make test-integration` — SQL repository tests on a throwaway Postgres container (`-tags=integration`, needs Docker)
 - `make eval` — agent scenarios against a real LLM (`-tags=eval`, needs `LLM_*` env)
 - `go vet ./... && go vet -tags=eval ./... && go vet -tags=integration ./...`
 - `cd web && npm run build` — frontend typecheck + build

@@ -81,15 +81,15 @@ Browser ──► web (nginx) ──► api ──► service ──► PostgreS
 
 ```bash
 make test        # go test -race ./...
-make db          # Postgres с портом на 127.0.0.1 (compose.dev.yml)
-make test-integration  # SQL-репозитории на настоящем Postgres (после make db)
+make db          # Postgres с портом на 127.0.0.1 (compose.dev.yml) для make run / run-bot
+make test-integration  # SQL-репозитории на одноразовом Postgres в Docker
 make eval        # сценарии из ТЗ против реальной LLM (нужны LLM_* в .env)
 make run         # api локально (после make db)
 make run-bot     # бот локально
 make web-dev     # фронтенд на http://localhost:5173 с прокси на :8080
 ```
 
-Makefile читает `.env`, но переменные окружения и аргументы make важнее: `POSTGRES_PORT=5433 make test-integration` или `make test-integration POSTGRES_PORT=5433`. Интеграционные тесты работают в той же БД, что и приложение, но создают пользователей с отрицательными ID (у Telegram таких нет) и удаляют их за собой.
+Makefile читает `.env`, но переменные окружения и аргументы make важнее: `POSTGRES_PORT=5433 make run` или `make run POSTGRES_PORT=5433`. Интеграционные тесты поднимают отдельный контейнер Postgres (порт `ITEST_PORT`, по умолчанию 55432) и удаляют его после прогона — данные приложения не затрагиваются.
 
 Тесты: доменные (деньги), сервисные (изоляция, валидация), HTTP API через `httptest` (включая строгий разбор JSON), агент с заскриптованной фейковой LLM (вызов инструментов, чужие траты, лимит шагов, частичный успех, календарь в промпте), LLM-клиент (формат запроса, ретраи), Telegram-обработчик (белый список, группы, команды, длина ответа) и очереди пользователей. Интеграционные тесты (`make test-integration`) проверяют SQL: владельца трат, частичное обновление, поиск с `%`/`_`, итоги, ограничения БД. `make eval` прогоняет диалог из ТЗ на настоящей модели и проверяет состояние базы после каждой фразы.
 
