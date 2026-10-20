@@ -80,6 +80,32 @@ func TestChatRetries(t *testing.T) {
 	}
 }
 
+func TestRetryDelay(t *testing.T) {
+	if d := retryDelay(&StatusError{Status: 429, RetryAfter: 3 * time.Second}, 1); d != 3*time.Second {
+		t.Errorf("Retry-After: delay = %v", d)
+	}
+	if d := retryDelay(&StatusError{Status: 429, RetryAfter: time.Hour}, 1); d != maxRetryAfter {
+		t.Errorf("capped delay = %v", d)
+	}
+	if d := retryDelay(&StatusError{Status: 503}, 2); d != 2*time.Second {
+		t.Errorf("backoff delay = %v", d)
+	}
+}
+
+func TestStatusErrorRetryAfter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "7")
+		http.Error(w, "slow down", http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(srv.URL).do(context.Background(), []byte("{}"))
+	se, ok := errors.AsType[*StatusError](err)
+	if !ok || se.RetryAfter != 7*time.Second {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestChatNoRetryOnClientError(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

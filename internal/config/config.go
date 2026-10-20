@@ -53,7 +53,7 @@ type LLM struct {
 	BaseURL string        `env:"LLM_BASE_URL" envDefault:"https://api.openai.com/v1"`
 	APIKey  string        `env:"LLM_API_KEY"`
 	Model   string        `env:"LLM_MODEL" envDefault:"gpt-4.1-mini"`
-	Timeout time.Duration `env:"LLM_TIMEOUT" envDefault:"60s"`
+	Timeout time.Duration `env:"LLM_TIMEOUT" envDefault:"30s"`
 	// Temperature не задана — параметр не передаётся (часть моделей его не поддерживает).
 	Temperature *float64 `env:"LLM_TEMPERATURE"`
 	// MaxSteps — лимит итераций tool calling на одно сообщение.

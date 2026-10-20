@@ -140,7 +140,7 @@
 | `LLM_BASE_URL` | `https://api.openai.com/v1` | Endpoint провайдера |
 | `LLM_API_KEY` | `sk-...` | Ключ |
 | `LLM_MODEL` | `gpt-4.1-mini` | Модель с поддержкой tool calling |
-| `LLM_TIMEOUT` | `60s` | Таймаут запроса |
+| `LLM_TIMEOUT` | `30s` | Таймаут одного запроса (до 3 попыток укладываются в 90 с на ответ бота) |
 | `LLM_TEMPERATURE` | `0` | Детерминированность; не задана — параметр не передаётся |
 | `LLM_MAX_STEPS` | `8` | Лимит итераций tool calling на одно сообщение |
 | `APP_TIMEZONE` | `Europe/Moscow` | Для «сегодня/вчера» |

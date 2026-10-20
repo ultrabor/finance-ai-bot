@@ -8,12 +8,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 )
 
-const maxAttempts = 3
+const (
+	maxAttempts = 3
+	// maxRetryAfter ограничивает паузу из Retry-After: дольше пользователь бота ждать не станет.
+	maxRetryAfter = 10 * time.Second
+)
 
 // OpenAIClient вызывает POST {BaseURL}/chat/completions.
 type OpenAIClient struct {
@@ -60,6 +65,8 @@ type chatResponse struct {
 type StatusError struct {
 	Status int
 	Body   string
+	// RetryAfter — пауза из заголовка Retry-After (только в секундах), 0 если не задана.
+	RetryAfter time.Duration
 }
 
 func (e *StatusError) Error() string {
@@ -86,7 +93,7 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []Message, tools []Too
 			select {
 			case <-ctx.Done():
 				return Message{}, ctx.Err()
-			case <-time.After(time.Duration(attempt) * time.Second):
+			case <-time.After(retryDelay(lastErr, attempt)):
 			}
 		}
 		msg, err := c.do(ctx, body)
@@ -99,6 +106,14 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []Message, tools []Too
 		}
 	}
 	return Message{}, lastErr
+}
+
+// retryDelay — пауза перед повтором: Retry-After провайдера или линейный backoff.
+func retryDelay(err error, attempt int) time.Duration {
+	if se, ok := errors.AsType[*StatusError](err); ok && se.RetryAfter > 0 {
+		return min(se.RetryAfter, maxRetryAfter)
+	}
+	return time.Duration(attempt) * time.Second
 }
 
 // transportError — сетевая ошибка запроса; её имеет смысл повторить.
@@ -137,7 +152,11 @@ func (c *OpenAIClient) do(ctx context.Context, body []byte) (Message, error) {
 		return Message{}, fmt.Errorf("llm: read response: %w", err)
 	}
 	if resp.StatusCode/100 != 2 {
-		return Message{}, &StatusError{Status: resp.StatusCode, Body: truncate(string(data), 500)}
+		se := &StatusError{Status: resp.StatusCode, Body: truncate(string(data), 500)}
+		if sec, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && sec > 0 {
+			se.RetryAfter = time.Duration(sec) * time.Second
+		}
+		return Message{}, se
 	}
 
 	var out chatResponse
