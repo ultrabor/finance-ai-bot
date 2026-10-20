@@ -1,0 +1,88 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Онбординг: путь траты от Telegram до Postgres",
+  "description": "Для нового разработчика: как сообщение «кофе 350» проходит через бота, ИИ-агента, сервис и хранилище, и как веб-панель использует тот же сервис.",
+  "steps": [
+    {
+      "directory": "internal",
+      "title": "Карта модулей",
+      "description": "Вся логика здесь. Два бинарника (`cmd/bot`, `cmd/api`) собираются из одних и тех же слоёв:\n\n- `telegram` — приём апдейтов, очереди, история диалога\n- `agent` + `llm` — цикл tool-calling над OpenAI-совместимым API\n- `httpapi` — REST для веб-панели (`web/`)\n- `service` — бизнес-правила и области доступа; единственная точка входа к данным\n- `storage/postgres` и `storage/memory` — две реализации одного репозитория\n- `domain` — типы без зависимостей (Money, Expense, Category)\n\nПравило: бот и API никогда не ходят в storage напрямую — только через `service`."
+    },
+    {
+      "file": "cmd/bot/main.go",
+      "title": "Сборка бота",
+      "description": "Composition root без DI-фреймворка: конфиг → пул Postgres → миграции (goose, встроены в бинарник) → `service.Expenses` → LLM-клиент → агент → бот.\n\nОбратите внимание: агент получает `*service.Expenses`, а не репозиторий. `cmd/api/main.go` собирает тот же сервис, поэтому правила валидации одинаковы для бота и панели.\n\nGotcha: `_ \"time/tzdata\"` в импортах обязателен — образ `scratch` без базы часовых поясов, а `APP_TIMEZONE` определяет «сегодня».",
+      "pattern": "expenses := service\\.NewExpenses"
+    },
+    {
+      "file": "internal/telegram/bot.go",
+      "title": "route: не блокировать воркер",
+      "description": "Библиотека go-telegram вызывает `route` из единственного воркера. Любой сетевой вызов здесь заморозит бота для всей семьи, поэтому `route` только раскладывает апдейт по очереди пользователя.\n\nПри переполнении пользователь получает предупреждение один раз за эпизод (`dispatchFull`), дальше — только лог (`dispatchFullNotified`).",
+      "pattern": "switch b\\.dispatcher\\.dispatch\\("
+    },
+    {
+      "file": "internal/telegram/dispatcher.go",
+      "title": "Очередь на пользователя",
+      "description": "Одна горутина и буферизованный канал на `userID`: сообщения одного человека идут строго по порядку (иначе «удали последнюю» может обогнать «кофе 350»), разные люди — параллельно.\n\nГорутина сама завершается после `idleTimeout` простоя. Удаление очереди идёт под мьютексом (ветка `case <-idle.C` в `run`), чтобы `dispatch` не положил апдейт в уже мёртвый канал.\n\nПри остановке `close` выкидывает не начатые апдейты и через `onDrop` просит пользователя повторить. Тесты: `dispatcher_test.go`.",
+      "pattern": "func \\(d \\*dispatcher\\) dispatch\\("
+    },
+    {
+      "file": "internal/telegram/bot.go",
+      "title": "handle: фильтры перед агентом",
+      "description": "До LLM доходит только то, что прошло все проверки:\n\n1. `accepts` — только личные чаты (в группе траты увидели бы все)\n2. `isFamily` — `FAMILY_TELEGRAM_IDS`; пустой список = пускаем всех (только при `TELEGRAM_ALLOW_ALL=true`, см. config)\n3. пустой текст, `/start`, слишком длинное сообщение\n4. `registerUser` — upsert в `users`, иначе FK на `expenses` упадёт\n\nЗатем: последние 10 сообщений за 30 минут → `agent.Reply` → сохранение пары в историю.\n\nGotcha (`saveCtx` в конце `handle`): история сохраняется с `context.WithoutCancel`, чтобы ответ попал в историю даже после истечения `replyTimeout`.",
+      "pattern": "func \\(h \\*handler\\) handle\\("
+    },
+    {
+      "file": "internal/agent/agent.go",
+      "title": "Reply: цикл агента",
+      "description": "Классический tool-calling loop, максимум `MaxSteps` итераций: system prompt (с календарём на сегодня) + история + сообщение → модель → вызовы инструментов → результаты обратно → пока модель не ответит текстом.\n\nКлючевая строка — первая в `Reply`: `service.UserScope(userID)` строится из Telegram ID и замыкается в инструментах. Модель не передаёт `user_id` и не может прочитать чужие траты.\n\n`journal` (`var done`) копит применённые изменения. Если LLM упала после записи (ветка `!done.empty()`), пользователь всё равно получит сводку сделанного — иначе он повторит запрос и создаст дубль.",
+      "pattern": "func \\(a \\*Agent\\) Reply\\("
+    },
+    {
+      "file": "internal/agent/tools.go",
+      "title": "runTool: ошибки — это данные для модели",
+      "description": "Инструмент всегда возвращает JSON. Ошибки валидации, `toolError` и `ErrNotFound` уходят модели как `{\"error\": \"...\"}` по-русски — она может исправить аргументы или объяснить пользователю.\n\nЛогируются только неожиданные ошибки (ветка `default`), и модели при этом не утекают детали — только «внутренняя ошибка».\n\nНовый инструмент: описание в `toolDefinitions` + case в `dispatch`.",
+      "pattern": "func \\(a \\*Agent\\) runTool\\("
+    },
+    {
+      "file": "internal/agent/tools.go",
+      "title": "add: граница float → Money",
+      "description": "Модель присылает сумму числом (иногда строкой — отсюда `flexNumber`). Здесь единственное место, где float превращается в копейки: `domain.MoneyFromFloat` с округлением.\n\nПосле успешного `Create` — обязательный `done.record(...)`. Любой мутирующий инструмент (add/update/delete) должен так делать, иначе сводка при сбое LLM будет неполной.",
+      "pattern": "func \\(a \\*Agent\\) add\\("
+    },
+    {
+      "file": "internal/service/scope.go",
+      "title": "Scope: кто что видит",
+      "description": "Две области: `UserScope(id)` для бота, `FamilyScope()` для веб-панели главы семьи.\n\nНулевое значение `Scope{}` запрещает доступ (`errNoScope`) — забыть передать область нельзя, получится ошибка, а не утечка всех трат.\n\n`owner()` превращает область в `*int64` для фильтра репозитория: `nil` = вся семья.",
+      "pattern": "type Scope struct"
+    },
+    {
+      "file": "internal/service/expenses.go",
+      "title": "Create: правила в одном месте",
+      "description": "Все бизнес-правила здесь, не в боте и не в HTTP:\n\n- при `UserScope` владелец берётся из области, а не из входа\n- пустая дата → «сегодня» в `APP_TIMEZONE` (`s.Today()`), затем обрезка до полуночи UTC\n- сумма, категория, дата, комментарий валидируются; ошибка — `domain.ValidationError` с полем\n\n`ValidationError` потом по-разному отображается: в боте — как `{\"error\"}` для модели, в API — как 400 с `field`.",
+      "pattern": "func \\(s \\*Expenses\\) Create\\("
+    },
+    {
+      "file": "internal/domain/money.go",
+      "title": "Money: копейки в int64",
+      "description": "Деньги — `int64` копеек везде: в логике, в Postgres (`BIGINT`, см. миграцию), в memory-хранилище. Float появляется только в JSON-ответах (`Float()`) и на входе от LLM (`MoneyFromFloat`).\n\n`MaxMoney` (100 млн ₽) защищает от опечаток вроде лишних нулей и от переполнения.\n\n`String()` форматирует по-русски: «1 200,50 ₽» — его использует журнал агента.",
+      "pattern": "type Money int64"
+    },
+    {
+      "file": "internal/storage/postgres/expenses.go",
+      "title": "Postgres и его зеркало",
+      "description": "`buildWhere` собирает параметризованный `WHERE` (`$1`, `$2`…), поиск по комментарию — `ILIKE` с экранированием `%` и `_`.\n\nGotcha: `internal/storage/memory/memory.go` (метод `Store.filter`) обязан повторять ту же семантику — фильтры, регистронезависимый поиск, сортировку. На memory-хранилище работают `make test`; реальный SQL проверяют только `make test-integration` (нужен Docker). Меняете запрос — меняйте оба.",
+      "pattern": "func buildWhere\\("
+    },
+    {
+      "file": "internal/httpapi/expenses.go",
+      "title": "Веб-панель: тот же сервис, другая область",
+      "description": "HTTP-обработчики тонкие: разбор запроса → `service` с `FamilyScope()` → DTO. Никакой своей бизнес-логики.\n\nОшибки маппятся централизованно в `writeError` (`server.go`): `ValidationError` → 400 с `field`, `ErrNotFound` → 404, остальное → 500 с логом и без деталей наружу.\n\nКонтракт REST — `api/openapi.yaml`; при изменении API обновляйте его вместе с `internal/httpapi` и `web/src/api/types.ts`.",
+      "pattern": "h\\.expenses\\.List\\(r\\.Context\\(\\), service\\.FamilyScope\\(\\)"
+    },
+    {
+      "title": "Что дальше",
+      "description": "Теперь вы можете провести любое сообщение от Telegram до строки в `expenses` и обратно.\n\nХорошие первые шаги:\n- `make test` — быстрые тесты без БД и LLM; `internal/agent/agent_test.go` показывает, как `scriptedLLM` (фейковый `llm.Client` с заранее заданными ответами) гоняет цикл агента\n- `make eval` — сценарии на реальной модели (нужны `LLM_*`)\n- `docs/PROJECT_PASSPORT.md` — решения и компромиссы, `docs/test-task-expenses.md` — исходные требования"
+    }
+  ]
+}
