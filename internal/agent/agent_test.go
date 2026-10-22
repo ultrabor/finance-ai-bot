@@ -12,6 +12,7 @@ import (
 
 	"finance-ai-bot/internal/adapter/storage/memory"
 	"finance-ai-bot/internal/agent/llm"
+	"finance-ai-bot/internal/agent/tools"
 	"finance-ai-bot/internal/domain"
 	"finance-ai-bot/internal/usecase/expense"
 	"finance-ai-bot/internal/usecase/user"
@@ -89,7 +90,7 @@ func lastToolResult(msgs []llm.Message) map[string]any {
 
 func TestAddExpense(t *testing.T) {
 	f := newFixture(t,
-		toolCall(toolAdd, map[string]any{"amount": 350, "category": "food", "comment": "кофе"}),
+		toolCall(tools.AddExpense, map[string]any{"amount": 350, "category": "food", "comment": "кофе"}),
 		say("Записал: кофе — 350 ₽ (еда), сегодня"),
 	)
 	reply, err := f.agent.Reply(context.Background(), alice, nil, "кофе 350")
@@ -125,10 +126,10 @@ func TestCannotTouchForeignExpense(t *testing.T) {
 
 	var results []map[string]any
 	f.llm.steps = []func([]llm.Message) llm.Message{
-		toolCall(toolUpdate, map[string]any{"id": foreign.ID.String(), "amount": 1}),
+		toolCall(tools.UpdateExpense, map[string]any{"id": foreign.ID.String(), "amount": 1}),
 		func(msgs []llm.Message) llm.Message {
 			results = append(results, lastToolResult(msgs))
-			return toolCall(toolDelete, map[string]any{"id": foreign.ID.String()})(msgs)
+			return toolCall(tools.DeleteExpense, map[string]any{"id": foreign.ID.String()})(msgs)
 		},
 		func(msgs []llm.Message) llm.Message {
 			results = append(results, lastToolResult(msgs))
@@ -162,7 +163,7 @@ func TestUpdateLastExpense(t *testing.T) {
 
 	var lastID string
 	f.llm.steps = []func([]llm.Message) llm.Message{
-		toolCall(toolList, map[string]any{"sort": "created_at", "limit": 1}),
+		toolCall(tools.ListExpenses, map[string]any{"sort": "created_at", "limit": 1}),
 		func(msgs []llm.Message) llm.Message {
 			items := lastToolResult(msgs)["items"].([]any)
 			if len(items) != 1 {
@@ -173,7 +174,7 @@ func TestUpdateLastExpense(t *testing.T) {
 				t.Errorf("last added = %v, want кофе", item["comment"])
 			}
 			lastID = item["id"].(string)
-			return toolCall(toolUpdate, map[string]any{"id": lastID, "amount": 450})(msgs)
+			return toolCall(tools.UpdateExpense, map[string]any{"id": lastID, "amount": 450})(msgs)
 		},
 		say("Исправил: кофе — 450 ₽"),
 	}
@@ -190,7 +191,7 @@ func TestUpdateLastExpense(t *testing.T) {
 func TestToolErrorsAreReportedToModel(t *testing.T) {
 	var result map[string]any
 	f := newFixture(t,
-		toolCall(toolAdd, map[string]any{"amount": -5, "category": "food"}),
+		toolCall(tools.AddExpense, map[string]any{"amount": -5, "category": "food"}),
 		func(msgs []llm.Message) llm.Message {
 			result = lastToolResult(msgs)
 			return say("Сумма должна быть больше нуля")(msgs)
@@ -205,7 +206,7 @@ func TestToolErrorsAreReportedToModel(t *testing.T) {
 }
 
 func TestStepLimit(t *testing.T) {
-	loop := toolCall(toolList, map[string]any{})
+	loop := toolCall(tools.ListExpenses, map[string]any{})
 	f := newFixture(t, loop, loop, loop, loop, loop)
 	reply, err := f.agent.Reply(context.Background(), alice, nil, "покажи траты")
 	if err != nil {
@@ -275,7 +276,7 @@ func TestUpdateIgnoresEmptyFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.llm.steps = []func([]llm.Message) llm.Message{
-		toolCall(toolUpdate, map[string]any{"id": e.ID.String(), "amount": "450", "category": "", "spent_at": "", "comment": ""}),
+		toolCall(tools.UpdateExpense, map[string]any{"id": e.ID.String(), "amount": "450", "category": "", "spent_at": "", "comment": ""}),
 		say("Исправил"),
 	}
 	if _, err := f.agent.Reply(ctx, alice, nil, "последнее было не 350, а 450"); err != nil {
@@ -290,7 +291,7 @@ func TestUpdateIgnoresEmptyFields(t *testing.T) {
 // Если LLM упала после записи, пользователь узнаёт о сохранённой трате, а не получает ошибку.
 func TestReportsChangesWhenLLMFails(t *testing.T) {
 	f := newFixture(t,
-		toolCall(toolAdd, map[string]any{"amount": "1 200,50", "category": "transport", "comment": "такси"}),
+		toolCall(tools.AddExpense, map[string]any{"amount": "1 200,50", "category": "transport", "comment": "такси"}),
 		// следующего шага нет — scriptedLLM вернёт ошибку
 	)
 	reply, err := f.agent.Reply(context.Background(), alice, nil, "такси 1200,50")
@@ -303,8 +304,8 @@ func TestReportsChangesWhenLLMFails(t *testing.T) {
 }
 
 func TestReportsChangesOnStepLimit(t *testing.T) {
-	add := toolCall(toolAdd, map[string]any{"amount": 350, "category": "food", "comment": "кофе"})
-	list := toolCall(toolList, map[string]any{})
+	add := toolCall(tools.AddExpense, map[string]any{"amount": 350, "category": "food", "comment": "кофе"})
+	list := toolCall(tools.ListExpenses, map[string]any{})
 	f := newFixture(t, add, list, list, list)
 	reply, err := f.agent.Reply(context.Background(), alice, nil, "кофе 350")
 	if err != nil {
@@ -324,7 +325,7 @@ func TestUnconfirmedChangeIsRetried(t *testing.T) {
 		func(msgs []llm.Message) llm.Message {
 			last := msgs[len(msgs)-1]
 			nudged = last.Role == llm.RoleSystem && strings.Contains(last.Content, "ничего не сохранено")
-			return toolCall(toolAdd, map[string]any{"amount": 1200, "category": "transport", "comment": "такси"})(msgs)
+			return toolCall(tools.AddExpense, map[string]any{"amount": 1200, "category": "transport", "comment": "такси"})(msgs)
 		},
 		say("Записал: такси — 1 200 ₽ (транспорт), сегодня"),
 	)
@@ -404,7 +405,7 @@ func TestNormalizeToolCall(t *testing.T) {
 	var seen []llm.Message
 	f := newFixture(t,
 		func([]llm.Message) llm.Message {
-			return llm.Message{ToolCalls: []llm.ToolCall{{Function: llm.FunctionCall{Name: toolList, Arguments: `{"limit": 5.0}`}}}}
+			return llm.Message{ToolCalls: []llm.ToolCall{{Function: llm.FunctionCall{Name: tools.ListExpenses, Arguments: `{"limit": 5.0}`}}}}
 		},
 		func(msgs []llm.Message) llm.Message {
 			seen = msgs

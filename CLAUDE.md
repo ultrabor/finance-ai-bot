@@ -17,7 +17,7 @@ Family expense tracker: Telegram bot with an LLM agent + web panel + REST API. G
 - Expense dates are `DATE` / midnight-UTC `time.Time`; "today" comes from `APP_TIMEZONE` via `domain.DateOf`.
 - Every service call takes a `service.Scope`. Bot code uses `UserScope(telegramID)`, web API uses `FamilyScope()`. Never let the LLM supply `user_id`.
 - Agent tool errors go back to the model as `{"error": "..."}`; only unexpected errors are logged.
-- Mutating agent tools must call `journal.record` so the user learns about applied changes even if the LLM fails afterwards.
+- Mutating agent tools (`internal/agent/tools`) must call `turn.Journal.Record` so the user learns about applied changes even if the LLM fails afterwards.
 - Bot handles only private chats; `FAMILY_TELEGRAM_IDS` is required unless `TELEGRAM_ALLOW_ALL=true`.
 - `memory` store must mirror postgres semantics (ordering, filters) — tests rely on it.
 - REST contract lives in `api/openapi.yaml` — update it together with `internal/httpapi` and `web/src/api/types.ts`.

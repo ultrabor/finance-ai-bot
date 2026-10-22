@@ -2,7 +2,6 @@ package agent
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"finance-ai-bot/internal/domain"
@@ -62,21 +61,4 @@ func systemPrompt(now time.Time, loc *time.Location) string {
 
 func day(t time.Time) string {
 	return t.Format(domain.DateLayout)
-}
-
-// categoryEnum — коды категорий для JSON Schema инструментов.
-func categoryEnum() []string {
-	out := make([]string, len(domain.Categories))
-	for i, c := range domain.Categories {
-		out[i] = string(c)
-	}
-	return out
-}
-
-func quoteAll(ss []string) string {
-	q := make([]string, len(ss))
-	for i, s := range ss {
-		q[i] = `"` + s + `"`
-	}
-	return strings.Join(q, ", ")
 }

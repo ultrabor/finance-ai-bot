@@ -8,9 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"finance-ai-bot/internal/agent/llm"
+	"finance-ai-bot/internal/agent/tools"
 	"finance-ai-bot/internal/domain"
 	"finance-ai-bot/internal/usecase/expense"
 )
@@ -28,22 +27,15 @@ const (
 var changeVerbs = []string{"записал", "изменил", "исправил", "удалил"}
 
 // ExpenseUseCase — сценарии учёта трат, которые агент вызывает через инструменты.
-type ExpenseUseCase interface {
-	Create(ctx context.Context, scope expense.Scope, in expense.CreateParams) (domain.Expense, error)
-	List(ctx context.Context, scope expense.Scope, f domain.ExpenseFilter) (expense.ListResult, error)
-	Summary(ctx context.Context, scope expense.Scope, f domain.ExpenseFilter) (domain.ExpenseSummary, error)
-	Update(ctx context.Context, scope expense.Scope, id uuid.UUID, p domain.ExpensePatch) (domain.Expense, error)
-	Delete(ctx context.Context, scope expense.Scope, id uuid.UUID) (domain.Expense, error)
-}
+type ExpenseUseCase = tools.ExpenseUseCase
 
 type Agent struct {
 	llm      llm.Client
-	expenses ExpenseUseCase
+	tools    *tools.Set
 	loc      *time.Location
 	maxSteps int
 	now      func() time.Time
 	log      *slog.Logger
-	tools    []llm.Tool
 }
 
 type Config struct {
@@ -54,12 +46,11 @@ type Config struct {
 func New(client llm.Client, expenses ExpenseUseCase, cfg Config, log *slog.Logger) *Agent {
 	return &Agent{
 		llm:      client,
-		expenses: expenses,
+		tools:    tools.NewSet(expenses, cfg.Location, log),
 		loc:      cfg.Location,
 		maxSteps: cfg.MaxSteps,
 		now:      time.Now,
 		log:      log,
-		tools:    toolDefinitions(),
 	}
 }
 
@@ -68,7 +59,8 @@ func New(client llm.Client, expenses ExpenseUseCase, cfg Config, log *slog.Logge
 // userID берётся только из Telegram-апдейта и замыкается в области доступа инструментов:
 // модель не передаёт и не может подменить владельца трат.
 func (a *Agent) Reply(ctx context.Context, userID int64, history []domain.ChatMessage, text string) (string, error) {
-	scope := expense.UserScope(userID)
+	var done journal
+	turn := tools.Turn{Scope: expense.UserScope(userID), Journal: &done}
 
 	msgs := make([]llm.Message, 0, len(history)+2)
 	msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: systemPrompt(a.now(), a.loc)})
@@ -77,12 +69,9 @@ func (a *Agent) Reply(ctx context.Context, userID int64, history []domain.ChatMe
 	}
 	msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: text})
 
-	var (
-		done   journal
-		nudged bool
-	)
+	var nudged bool
 	for step := range a.maxSteps {
-		resp, err := a.llm.Chat(ctx, msgs, a.tools)
+		resp, err := a.llm.Chat(ctx, msgs, a.tools.Definitions())
 		if err != nil {
 			err = fmt.Errorf("agent step %d: %w", step, err)
 			// Изменения уже сохранены — сообщаем о них, иначе пользователь повторит запрос и создаст дубль.
@@ -107,7 +96,7 @@ func (a *Agent) Reply(ctx context.Context, userID int64, history []domain.ChatMe
 		for i := range resp.ToolCalls {
 			call := &resp.ToolCalls[i]
 			normalizeToolCall(call, step, i)
-			result := a.runTool(ctx, scope, &done, *call)
+			result := a.tools.Run(ctx, turn, *call)
 			a.log.DebugContext(ctx, "tool call",
 				"user_id", userID, "tool", call.Function.Name, "args", call.Function.Arguments, "result", result)
 			msgs = append(msgs, llm.Message{Role: llm.RoleTool, ToolCallID: call.ID, Content: result})
@@ -160,12 +149,12 @@ func normalizeToolCall(call *llm.ToolCall, step, idx int) {
 	}
 }
 
-// journal — изменения трат за один ход агента.
+// journal — изменения трат за один ход агента; реализует tools.Journal.
 type journal struct {
 	entries []string
 }
 
-func (j *journal) record(action string, e domain.Expense) {
+func (j *journal) Record(action string, e domain.Expense) {
 	what := e.Comment
 	if what == "" {
 		what = e.Category.Label()
