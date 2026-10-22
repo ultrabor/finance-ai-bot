@@ -3,6 +3,7 @@ package expense_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -135,5 +136,174 @@ func TestListPeriodValidation(t *testing.T) {
 	var ve *domain.ValidationError
 	if !errors.As(err, &ve) {
 		t.Fatalf("err = %v, want validation error", err)
+	}
+}
+
+func TestUpdateValidation(t *testing.T) {
+	ctx := context.Background()
+	svc := setup(t)
+	scope := expense.UserScope(alice)
+	e, err := svc.Create(ctx, scope, expense.CreateParams{Amount: 100, Category: domain.CategoryFood})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	zero, tooBig := domain.Money(0), domain.MaxMoney+1
+	beer := domain.Category("beer")
+	future, ancient := time.Now().UTC().AddDate(0, 0, 3), time.Date(1999, 12, 31, 0, 0, 0, 0, time.UTC)
+	long := strings.Repeat("я", expense.MaxCommentLen+1)
+	tests := []struct {
+		name  string
+		patch domain.ExpensePatch
+		field string
+	}{
+		{"empty patch", domain.ExpensePatch{}, "body"},
+		{"zero amount", domain.ExpensePatch{Amount: &zero}, "amount"},
+		{"too big amount", domain.ExpensePatch{Amount: &tooBig}, "amount"},
+		{"bad category", domain.ExpensePatch{Category: &beer}, "category"},
+		{"future date", domain.ExpensePatch{SpentAt: &future}, "spent_at"},
+		{"ancient date", domain.ExpensePatch{SpentAt: &ancient}, "spent_at"},
+		{"long comment", domain.ExpensePatch{Comment: &long}, "comment"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := svc.Update(ctx, scope, e.ID, tt.patch)
+			var ve *domain.ValidationError
+			if !errors.As(err, &ve) || ve.Field != tt.field {
+				t.Fatalf("err = %v, want validation error on %q", err, tt.field)
+			}
+		})
+	}
+}
+
+func TestUpdateNormalizesFields(t *testing.T) {
+	ctx := context.Background()
+	svc := setup(t)
+	scope := expense.UserScope(alice)
+	e, err := svc.Create(ctx, scope, expense.CreateParams{Amount: 100, Category: domain.CategoryFood})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	amount, cat, comment := domain.Money(250), domain.CategoryHealth, "  аптека "
+	// Время суток отбрасывается: в БД хранится только дата.
+	when := time.Date(2026, 1, 15, 18, 45, 0, 0, time.UTC)
+	got, err := svc.Update(ctx, scope, e.ID, domain.ExpensePatch{
+		Amount: &amount, Category: &cat, SpentAt: &when, Comment: &comment,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Amount != amount || got.Category != cat || got.Comment != "аптека" ||
+		!got.SpentAt.Equal(time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("updated = %+v", got)
+	}
+}
+
+func TestSummaryRespectsScopeAndCategory(t *testing.T) {
+	ctx := context.Background()
+	svc := setup(t)
+	for _, in := range []struct {
+		owner  int64
+		amount domain.Money
+		cat    domain.Category
+	}{
+		{alice, 100, domain.CategoryFood},
+		{alice, 200, domain.CategoryTransport},
+		{bob, 400, domain.CategoryFood},
+	} {
+		if _, err := svc.Create(ctx, expense.UserScope(in.owner), expense.CreateParams{Amount: in.amount, Category: in.cat}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sum, err := svc.Summary(ctx, expense.UserScope(alice), domain.ExpenseFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.Count != 2 || sum.Total != 300 || len(sum.ByCategory) != 2 {
+		t.Errorf("alice summary = %+v", sum)
+	}
+
+	food := domain.CategoryFood
+	sum, err = svc.Summary(ctx, expense.FamilyScope(), domain.ExpenseFilter{Category: &food})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.Count != 2 || sum.Total != 500 {
+		t.Errorf("family food summary = %+v", sum)
+	}
+
+	beer := domain.Category("beer")
+	if _, err := svc.Summary(ctx, expense.FamilyScope(), domain.ExpenseFilter{Category: &beer}); err == nil {
+		t.Error("unknown category in filter must be rejected")
+	}
+	if _, err := svc.Summary(ctx, expense.Scope{}, domain.ExpenseFilter{}); err == nil {
+		t.Error("zero scope must be rejected")
+	}
+}
+
+func TestListPagingDefaults(t *testing.T) {
+	ctx := context.Background()
+	svc := setup(t)
+	scope := expense.UserScope(alice)
+	for range expense.DefaultListLimit + 1 {
+		if _, err := svc.Create(ctx, scope, expense.CreateParams{Amount: 1, Category: domain.CategoryOther}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	res, err := svc.List(ctx, scope, domain.ExpenseFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Items) != expense.DefaultListLimit || res.Summary.Count != expense.DefaultListLimit+1 {
+		t.Errorf("default page: %d items of %d", len(res.Items), res.Summary.Count)
+	}
+
+	res, err = svc.List(ctx, scope, domain.ExpenseFilter{Limit: expense.MaxListLimit + 100, Offset: expense.DefaultListLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Items) != 1 {
+		t.Errorf("offset page: %d items, want 1", len(res.Items))
+	}
+
+	for name, f := range map[string]domain.ExpenseFilter{
+		"negative offset": {Offset: -1},
+		"unknown sort":    {Sort: "amount"},
+	} {
+		var ve *domain.ValidationError
+		if _, err := svc.List(ctx, scope, f); !errors.As(err, &ve) {
+			t.Errorf("%s: err = %v, want validation error", name, err)
+		}
+	}
+}
+
+func TestZeroScopeDeniedEverywhere(t *testing.T) {
+	ctx := context.Background()
+	svc := setup(t)
+	e, err := svc.Create(ctx, expense.UserScope(alice), expense.CreateParams{Amount: 1, Category: domain.CategoryFood})
+	if err != nil {
+		t.Fatal(err)
+	}
+	amount := domain.Money(2)
+	checks := map[string]error{}
+	_, checks["Create"] = svc.Create(ctx, expense.Scope{}, expense.CreateParams{UserID: alice, Amount: 1, Category: domain.CategoryFood})
+	_, checks["Get"] = svc.Get(ctx, expense.Scope{}, e.ID)
+	_, checks["Update"] = svc.Update(ctx, expense.Scope{}, e.ID, domain.ExpensePatch{Amount: &amount})
+	_, checks["Delete"] = svc.Delete(ctx, expense.Scope{}, e.ID)
+	for name, err := range checks {
+		if err == nil {
+			t.Errorf("%s with zero scope must be rejected", name)
+		}
+	}
+}
+
+func TestFamilyScopeRequiresUserID(t *testing.T) {
+	_, err := setup(t).Create(context.Background(), expense.FamilyScope(), expense.CreateParams{Amount: 1, Category: domain.CategoryFood})
+	var ve *domain.ValidationError
+	if !errors.As(err, &ve) || ve.Field != "user_id" {
+		t.Fatalf("err = %v, want validation error on user_id", err)
 	}
 }
