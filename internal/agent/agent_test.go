@@ -74,8 +74,12 @@ func newFixture(t *testing.T, steps ...func([]llm.Message) llm.Message) *fixture
 	expenses := expense.NewService(store.Expenses(), time.UTC)
 	client := &scriptedLLM{steps: steps}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ai, err := New(client, expenses, Config{Location: time.UTC, MaxSteps: 4, Prompts: loadPrompts(t)}, log)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return &fixture{
-		agent:    New(client, expenses, Config{Location: time.UTC, MaxSteps: 4, Prompts: loadPrompts(t)}, log),
+		agent:    ai,
 		expenses: expenses,
 		llm:      client,
 	}
@@ -428,5 +432,23 @@ func TestNormalizeToolCall(t *testing.T) {
 	}
 	if strings.Contains(result.Content, "error") {
 		t.Errorf("limit 5.0 rejected: %s", result.Content)
+	}
+}
+
+// Неполная конфигурация отклоняется при создании, а не паникой на первом сообщении.
+func TestNewRejectsIncompleteConfig(t *testing.T) {
+	p := loadPrompts(t)
+	tests := map[string]Config{
+		"no prompts":  {Location: time.UTC, MaxSteps: 4},
+		"no location": {Prompts: p, MaxSteps: 4},
+		"zero steps":  {Prompts: p, Location: time.UTC},
+	}
+	for name, cfg := range tests {
+		t.Run(name, func(t *testing.T) {
+			ai, err := New(&scriptedLLM{}, nil, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			if err == nil || ai != nil {
+				t.Errorf("New = %v, %v; want error", ai, err)
+			}
+		})
 	}
 }

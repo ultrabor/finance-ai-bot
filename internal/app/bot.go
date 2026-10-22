@@ -36,7 +36,10 @@ func RunBot(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 	expenses := expense.NewService(postgres.NewExpenseRepo(rt.pool), rt.loc)
-	ai := agent.New(client, expenses, agent.Config{Location: rt.loc, MaxSteps: cfg.LLM.MaxSteps, Prompts: agentPrompts}, rt.log)
+	ai, err := agent.New(client, expenses, agent.Config{Location: rt.loc, MaxSteps: cfg.LLM.MaxSteps, Prompts: agentPrompts}, rt.log)
+	if err != nil {
+		return err
+	}
 
 	bot, err := telegram.New(
 		telegram.Config{Token: cfg.Telegram.Token, AllowedIDs: cfg.Telegram.AllowedIDs},

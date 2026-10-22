@@ -3,6 +3,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -44,7 +45,17 @@ type Config struct {
 	Prompts *prompts.Prompts
 }
 
-func New(client llm.Client, expenses ExpenseUseCase, cfg Config, log *slog.Logger) *Agent {
+// New проверяет конфигурацию сразу: без промпта или часового пояса агент упал бы
+// на первом сообщении, а не при запуске.
+func New(client llm.Client, expenses ExpenseUseCase, cfg Config, log *slog.Logger) (*Agent, error) {
+	switch {
+	case cfg.Prompts == nil:
+		return nil, errors.New("agent: Config.Prompts is required (load it with prompts.Load)")
+	case cfg.Location == nil:
+		return nil, errors.New("agent: Config.Location is required")
+	case cfg.MaxSteps < 1:
+		return nil, fmt.Errorf("agent: Config.MaxSteps must be positive, got %d", cfg.MaxSteps)
+	}
 	return &Agent{
 		llm:      client,
 		tools:    tools.NewSet(expenses, cfg.Location, log),
@@ -53,7 +64,7 @@ func New(client llm.Client, expenses ExpenseUseCase, cfg Config, log *slog.Logge
 		maxSteps: cfg.MaxSteps,
 		now:      time.Now,
 		log:      log,
-	}
+	}, nil
 }
 
 // Reply обрабатывает сообщение пользователя и возвращает ответ для него.
