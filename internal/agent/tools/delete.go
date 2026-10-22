@@ -10,13 +10,7 @@ type deleteArgs struct {
 
 func (s *Set) deleteTool() tool {
 	return tool{
-		def: definition(DeleteExpense, "Удалить трату пользователя; id бери из list_expenses.", `{
-			"type": "object",
-			"properties": {
-				"id": {"type": "string", "description": "id траты из list_expenses"}
-			},
-			"required": ["id"]
-		}`),
+		def: definition(DeleteExpense),
 		run: handle(s.delete),
 	}
 }

@@ -1,0 +1,16 @@
+{
+  "name": "delete_expense",
+  "description": "Удалить трату пользователя; id бери из list_expenses.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "id траты из list_expenses"
+      }
+    },
+    "required": [
+      "id"
+    ]
+  }
+}

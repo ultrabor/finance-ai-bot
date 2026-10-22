@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -44,21 +45,56 @@ func run(t *testing.T, set *Set, turn Turn, name, args string) map[string]any {
 	return res
 }
 
-func TestDefinitionsAreValidJSONSchema(t *testing.T) {
+// Схемы лежат в schemas/*.json: категории в них должны совпадать с доменом,
+// а обязательные поля — существовать среди свойств.
+func TestDefinitionsMatchDomain(t *testing.T) {
 	set, _, _ := newSet(t)
+	want := make([]string, len(domain.Categories))
+	for i, c := range domain.Categories {
+		want[i] = string(c)
+	}
 	names := map[string]bool{}
 	for _, d := range set.Definitions() {
-		var schema map[string]any
-		if err := json.Unmarshal(d.Function.Parameters, &schema); err != nil {
-			t.Errorf("%s: invalid schema: %v", d.Function.Name, err)
-		}
 		names[d.Function.Name] = true
+		if d.Function.Description == "" {
+			t.Errorf("%s: empty description", d.Function.Name)
+		}
+		var schema struct {
+			Type       string `json:"type"`
+			Properties map[string]struct {
+				Enum []string `json:"enum"`
+			} `json:"properties"`
+			Required []string `json:"required"`
+		}
+		if err := json.Unmarshal(d.Function.Parameters, &schema); err != nil {
+			t.Fatalf("%s: invalid schema: %v", d.Function.Name, err)
+		}
+		if schema.Type != "object" {
+			t.Errorf("%s: type = %q, want object", d.Function.Name, schema.Type)
+		}
+		if cat, ok := schema.Properties["category"]; ok && !slices.Equal(cat.Enum, want) {
+			t.Errorf("%s: category enum = %v, want %v", d.Function.Name, cat.Enum, want)
+		}
+		for _, r := range schema.Required {
+			if _, ok := schema.Properties[r]; !ok {
+				t.Errorf("%s: required %q is not a property", d.Function.Name, r)
+			}
+		}
 	}
 	for _, n := range []string{AddExpense, ListExpenses, SumExpenses, UpdateExpense, DeleteExpense} {
 		if !names[n] {
 			t.Errorf("tool %s is not defined", n)
 		}
 	}
+}
+
+func TestDefinitionPanicsOnUnknownTool(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("definition of a tool without schema must panic")
+		}
+	}()
+	definition("drop_table")
 }
 
 func TestMutatingToolsRecordJournal(t *testing.T) {

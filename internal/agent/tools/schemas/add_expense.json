@@ -1,0 +1,37 @@
+{
+  "name": "add_expense",
+  "description": "Записать новую трату пользователя.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "amount": {
+        "type": "number",
+        "description": "Сумма в рублях, больше 0"
+      },
+      "category": {
+        "type": "string",
+        "enum": [
+          "food",
+          "transport",
+          "housing",
+          "entertainment",
+          "health",
+          "shopping",
+          "other"
+        ]
+      },
+      "spent_at": {
+        "type": "string",
+        "description": "Дата траты YYYY-MM-DD; по умолчанию сегодня"
+      },
+      "comment": {
+        "type": "string",
+        "description": "Короткое описание: «кофе», «такси до работы»"
+      }
+    },
+    "required": [
+      "amount",
+      "category"
+    ]
+  }
+}

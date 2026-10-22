@@ -1,0 +1,40 @@
+{
+  "name": "update_expense",
+  "description": "Изменить трату пользователя. Передавай только изменяемые поля; id бери из list_expenses.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "id траты из list_expenses"
+      },
+      "amount": {
+        "type": "number",
+        "description": "Новая сумма в рублях"
+      },
+      "category": {
+        "type": "string",
+        "enum": [
+          "food",
+          "transport",
+          "housing",
+          "entertainment",
+          "health",
+          "shopping",
+          "other"
+        ]
+      },
+      "spent_at": {
+        "type": "string",
+        "description": "Новая дата YYYY-MM-DD"
+      },
+      "comment": {
+        "type": "string",
+        "description": "Новое описание; не передавай, если описание не меняется"
+      }
+    },
+    "required": [
+      "id"
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "sum_expenses",
+  "description": "Посчитать сумму трат пользователя за период с разбивкой по категориям.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "from": {
+        "type": "string",
+        "description": "Дата с (включительно), YYYY-MM-DD"
+      },
+      "to": {
+        "type": "string",
+        "description": "Дата по (включительно), YYYY-MM-DD"
+      },
+      "category": {
+        "type": "string",
+        "enum": [
+          "food",
+          "transport",
+          "housing",
+          "entertainment",
+          "health",
+          "shopping",
+          "other"
+        ]
+      }
+    }
+  }
+}

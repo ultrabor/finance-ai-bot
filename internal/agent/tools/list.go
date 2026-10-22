@@ -28,17 +28,7 @@ type listView struct {
 
 func (s *Set) listTool() tool {
 	return tool{
-		def: definition(ListExpenses, "Найти траты пользователя. Возвращает до limit трат с id, а также количество и сумму всех найденных.", `{
-			"type": "object",
-			"properties": {
-				"from":     {"type": "string", "description": "Дата с (включительно), YYYY-MM-DD"},
-				"to":       {"type": "string", "description": "Дата по (включительно), YYYY-MM-DD"},
-				"category": {"type": "string", "enum": [`+categoryEnum+`]},
-				"query":    {"type": "string", "description": "Подстрока описания траты, например «такси»"},
-				"sort":     {"type": "string", "enum": ["spent_at", "created_at"], "description": "spent_at — по дате траты (по умолчанию), created_at — по времени добавления; всегда от новых к старым"},
-				"limit":    {"type": "integer", "description": "Сколько трат вернуть, 1–50, по умолчанию 10"}
-			}
-		}`),
+		def: definition(ListExpenses),
 		run: handle(s.list),
 	}
 }

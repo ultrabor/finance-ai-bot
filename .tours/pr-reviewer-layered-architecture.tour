@@ -37,7 +37,7 @@
       "file": "internal/agent/tools/add.go",
       "pattern": "turn\\.Journal\\.Record",
       "title": "Один файл — один инструмент",
-      "description": "Шаблон каждого инструмента: константа имени, структура аргументов, JSON-схема и обработчик. Общий разбор (`flexNumber`, даты, id, сумма) — в `args.go`, представления для модели — в `view.go`.\n\nИнвариант из CLAUDE.md: мутирующий инструмент обязан вызвать `turn.Journal.Record` после успешной операции. Это проверяет `TestMutatingToolsRecordJournal` в `tools_test.go`."
+      "description": "Шаблон каждого инструмента: константа имени, структура аргументов и обработчик; описание и JSON-схема для модели — в `schemas/<name>.json` (встроены через `go:embed`). Общий разбор (`flexNumber`, даты, id, сумма) — в `args.go`, представления для модели — в `view.go`.\n\nИнвариант из CLAUDE.md: мутирующий инструмент обязан вызвать `turn.Journal.Record` после успешной операции. Это проверяет `TestMutatingToolsRecordJournal` в `tools_test.go`."
     },
     {
       "file": "internal/agent/prompts/system.tmpl",

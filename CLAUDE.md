@@ -17,7 +17,7 @@ Family expense tracker: Telegram bot with an LLM agent + web panel + REST API. G
 
 - `internal/domain` — entities, `Money`, `Category`, errors. Imports nothing from `internal/`.
 - `internal/usecase/{expense,user}` — business rules; repository ports in `ports.go`.
-- `internal/agent` — LLM ↔ tools loop and journal; `agent/llm` (LLM port), `agent/tools` (one file per tool), `agent/prompts` (`system.tmpl` + golden test).
+- `internal/agent` — LLM ↔ tools loop and journal; `agent/llm` (LLM port), `agent/tools` (one file per tool; model-facing description + JSON schema in `agent/tools/schemas/<name>.json`), `agent/prompts` (`system.tmpl` + golden test).
 - `internal/adapter` — `llm/openai`, `storage/postgres`: implement ports.
 - `internal/testutil/memstore` — in-memory store for tests and eval only; depguard forbids it in non-test code.
 - `internal/transport/{httpapi,telegram}` — depend on use case interfaces they declare.

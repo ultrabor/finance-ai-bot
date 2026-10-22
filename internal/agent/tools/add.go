@@ -18,16 +18,7 @@ type addArgs struct {
 
 func (s *Set) addTool() tool {
 	return tool{
-		def: definition(AddExpense, "Записать новую трату пользователя.", `{
-			"type": "object",
-			"properties": {
-				"amount":   {"type": "number", "description": "Сумма в рублях, больше 0"},
-				"category": {"type": "string", "enum": [`+categoryEnum+`]},
-				"spent_at": {"type": "string", "description": "Дата траты YYYY-MM-DD; по умолчанию сегодня"},
-				"comment":  {"type": "string", "description": "Короткое описание: «кофе», «такси до работы»"}
-			},
-			"required": ["amount", "category"]
-		}`),
+		def: definition(AddExpense),
 		run: handle(s.add),
 	}
 }

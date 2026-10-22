@@ -18,14 +18,7 @@ type summaryView struct {
 
 func (s *Set) sumTool() tool {
 	return tool{
-		def: definition(SumExpenses, "Посчитать сумму трат пользователя за период с разбивкой по категориям.", `{
-			"type": "object",
-			"properties": {
-				"from":     {"type": "string", "description": "Дата с (включительно), YYYY-MM-DD"},
-				"to":       {"type": "string", "description": "Дата по (включительно), YYYY-MM-DD"},
-				"category": {"type": "string", "enum": [`+categoryEnum+`]}
-			}
-		}`),
+		def: definition(SumExpenses),
 		run: handle(s.sum),
 	}
 }

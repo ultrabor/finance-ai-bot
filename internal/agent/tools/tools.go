@@ -1,14 +1,14 @@
-// Package tools — инструменты ИИ-агента. Каждый инструмент в своём файле:
-// JSON-схема для модели, разбор аргументов и вызов сценария учёта трат.
+// Package tools — инструменты ИИ-агента. Каждый инструмент в своём файле: разбор
+// аргументов и вызов сценария учёта трат; описание и JSON-схема для модели — в schemas/<name>.json.
 package tools
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,6 +38,9 @@ type Turn struct {
 	Scope   expense.Scope
 	Journal Journal
 }
+
+//go:embed schemas/*.json
+var schemas embed.FS
 
 type tool struct {
 	def llm.Tool
@@ -114,20 +117,23 @@ func handle[A any](fn func(ctx context.Context, turn Turn, args A) (any, error))
 	}
 }
 
-func definition(name, desc, params string) llm.Tool {
-	return llm.Tool{Type: "function", Function: llm.FunctionDef{
-		Name: name, Description: desc, Parameters: json.RawMessage(params),
-	}}
-}
-
-// categoryEnum — коды категорий для JSON Schema: "food", "transport", ...
-var categoryEnum = func() string {
-	q := make([]string, len(domain.Categories))
-	for i, c := range domain.Categories {
-		q[i] = `"` + string(c) + `"`
+// definition читает описание инструмента для модели из schemas/<name>.json.
+// Файлы встроены в бинарник, поэтому битый файл — ошибка программиста: паникуем
+// при сборке набора, а TestDefinitionsMatchDomain ловит это раньше.
+func definition(name string) llm.Tool {
+	data, err := schemas.ReadFile("schemas/" + name + ".json")
+	if err != nil {
+		panic(fmt.Sprintf("tools: schema for %s: %v", name, err))
 	}
-	return strings.Join(q, ", ")
-}()
+	var fn llm.FunctionDef
+	if err := json.Unmarshal(data, &fn); err != nil {
+		panic(fmt.Sprintf("tools: schema for %s: %v", name, err))
+	}
+	if fn.Name != name {
+		panic(fmt.Sprintf("tools: schemas/%s.json declares name %q", name, fn.Name))
+	}
+	return llm.Tool{Type: "function", Function: fn}
+}
 
 // toolError — ошибка, которую модель должна увидеть и учесть в ответе.
 type toolError struct{ msg string }

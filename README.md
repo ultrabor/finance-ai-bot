@@ -196,7 +196,7 @@ Browser ──► web (nginx) ──► api ──► usecase ──► PostgreS
 | `internal/usecase/expense`, `internal/usecase/user` | бизнес-логика, валидация, области доступа (`UserScope` / `FamilyScope`); порты репозиториев в `ports.go` |
 | `internal/agent` | ИИ-агент: цикл tool calling и журнал изменений |
 | `internal/agent/llm` | порт к модели: формат сообщений и интерфейс `Client` |
-| `internal/agent/tools` | инструменты агента, по файлу на инструмент: JSON-схема, аргументы, вызов use case |
+| `internal/agent/tools` | инструменты агента, по файлу на инструмент: аргументы и вызов use case; описание и JSON-схема для модели — `schemas/<name>.json` |
 | `internal/agent/prompts` | системный промпт: `system.tmpl` + golden-тест |
 | `internal/adapter/llm/openai` | клиент OpenAI-совместимого Chat Completions API |
 | `internal/adapter/storage/postgres` | репозитории на pgx, миграции goose (встроены в бинарник) |

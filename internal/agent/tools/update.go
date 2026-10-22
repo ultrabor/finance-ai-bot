@@ -20,17 +20,7 @@ type updateArgs struct {
 
 func (s *Set) updateTool() tool {
 	return tool{
-		def: definition(UpdateExpense, "Изменить трату пользователя. Передавай только изменяемые поля; id бери из list_expenses.", `{
-			"type": "object",
-			"properties": {
-				"id":       {"type": "string", "description": "id траты из list_expenses"},
-				"amount":   {"type": "number", "description": "Новая сумма в рублях"},
-				"category": {"type": "string", "enum": [`+categoryEnum+`]},
-				"spent_at": {"type": "string", "description": "Новая дата YYYY-MM-DD"},
-				"comment":  {"type": "string", "description": "Новое описание; не передавай, если описание не меняется"}
-			},
-			"required": ["id"]
-		}`),
+		def: definition(UpdateExpense),
 		run: handle(s.update),
 	}
 }
