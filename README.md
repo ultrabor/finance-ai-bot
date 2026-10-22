@@ -222,7 +222,7 @@ Browser ──► web (nginx) ──► api ──► usecase ──► PostgreS
 
 ### Конфигурация
 
-Все переменные с комментариями — в [.env.example](.env.example). Помимо описанных выше: `APP_TIMEZONE` (от него считаются «сегодня» и «этот месяц», по умолчанию `Europe/Moscow`), `LLM_TIMEOUT`, `LLM_TEMPERATURE`, `LLM_MAX_STEPS`. `AGENT_PROMPT_PATH` — необязательный путь к своему шаблону промпта (копия `internal/agent/prompts/system.tmpl`): читается при старте бота, так что промпт меняется без пересборки; шаблон с ошибкой не даёт боту запуститься. `TELEGRAM_ALLOW_ALL=true` отключает белый список — только для демо.
+Все переменные с комментариями — в [.env.example](.env.example). Помимо описанных выше: `APP_TIMEZONE` (от него считаются «сегодня» и «этот месяц», по умолчанию `Europe/Moscow`), `LLM_TIMEOUT`, `LLM_TEMPERATURE`, `LLM_MAX_STEPS`. `AGENT_PROMPT_PATH` — необязательный путь к своему шаблону промпта (копия `internal/agent/prompts/system.tmpl`): читается при старте бота, так что промпт меняется без пересборки; шаблон с ошибкой не даёт боту запуститься. В docker compose файл нужно смонтировать в контейнер бота — закомментированный пример (`volumes` + `AGENT_PROMPT_PATH`) есть в `docker-compose.yml` у сервиса `bot`. `TELEGRAM_ALLOW_ALL=true` отключает белый список — только для демо.
 
 ## Решения
 
