@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"finance-ai-bot/internal/domain"
-	"finance-ai-bot/internal/service"
+	"finance-ai-bot/internal/usecase/expense"
 )
 
 func (h *Handler) listExpenses(w http.ResponseWriter, r *http.Request) {
@@ -22,7 +22,7 @@ func (h *Handler) listExpenses(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	res, err := h.expenses.List(r.Context(), service.FamilyScope(), f)
+	res, err := h.expenses.List(r.Context(), expense.FamilyScope(), f)
 	if err != nil {
 		h.writeError(w, r, err)
 		return
@@ -49,7 +49,7 @@ func (h *Handler) createExpense(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	in := service.NewExpense{
+	in := expense.CreateParams{
 		UserID:   req.UserID,
 		Amount:   amount,
 		Category: domain.Category(req.Category),
@@ -66,7 +66,7 @@ func (h *Handler) createExpense(w http.ResponseWriter, r *http.Request) {
 		in.Comment = *req.Comment
 	}
 
-	e, err := h.expenses.Create(r.Context(), service.FamilyScope(), in)
+	e, err := h.expenses.Create(r.Context(), expense.FamilyScope(), in)
 	if err != nil {
 		h.writeError(w, r, err)
 		return
@@ -80,7 +80,7 @@ func (h *Handler) getExpense(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	e, err := h.expenses.Get(r.Context(), service.FamilyScope(), id)
+	e, err := h.expenses.Get(r.Context(), expense.FamilyScope(), id)
 	if err != nil {
 		h.writeError(w, r, err)
 		return
@@ -105,7 +105,7 @@ func (h *Handler) updateExpense(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	e, err := h.expenses.Update(r.Context(), service.FamilyScope(), id, p)
+	e, err := h.expenses.Update(r.Context(), expense.FamilyScope(), id, p)
 	if err != nil {
 		h.writeError(w, r, err)
 		return
@@ -119,7 +119,7 @@ func (h *Handler) deleteExpense(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	if _, err := h.expenses.Delete(r.Context(), service.FamilyScope(), id); err != nil {
+	if _, err := h.expenses.Delete(r.Context(), expense.FamilyScope(), id); err != nil {
 		h.writeError(w, r, err)
 		return
 	}
@@ -208,11 +208,11 @@ func parseExpenseFilter(q url.Values) (domain.ExpenseFilter, error) {
 	f.Query = q.Get("q")
 
 	var err error
-	if f.Limit, err = intParam(q, "limit", service.DefaultListLimit); err != nil {
+	if f.Limit, err = intParam(q, "limit", expense.DefaultListLimit); err != nil {
 		return f, err
 	}
-	if f.Limit < 1 || f.Limit > service.MaxListLimit {
-		return f, domain.NewValidationError("limit", fmt.Sprintf("от 1 до %d", service.MaxListLimit))
+	if f.Limit < 1 || f.Limit > expense.MaxListLimit {
+		return f, domain.NewValidationError("limit", fmt.Sprintf("от 1 до %d", expense.MaxListLimit))
 	}
 	if f.Offset, err = intParam(q, "offset", 0); err != nil {
 		return f, err

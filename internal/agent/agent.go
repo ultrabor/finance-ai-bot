@@ -10,7 +10,7 @@ import (
 
 	"finance-ai-bot/internal/domain"
 	"finance-ai-bot/internal/llm"
-	"finance-ai-bot/internal/service"
+	"finance-ai-bot/internal/usecase/expense"
 )
 
 const (
@@ -27,7 +27,7 @@ var changeVerbs = []string{"записал", "изменил", "исправил
 
 type Agent struct {
 	llm      llm.Client
-	expenses *service.Expenses
+	expenses *expense.Service
 	loc      *time.Location
 	maxSteps int
 	now      func() time.Time
@@ -40,7 +40,7 @@ type Config struct {
 	MaxSteps int
 }
 
-func New(client llm.Client, expenses *service.Expenses, cfg Config, log *slog.Logger) *Agent {
+func New(client llm.Client, expenses *expense.Service, cfg Config, log *slog.Logger) *Agent {
 	return &Agent{
 		llm:      client,
 		expenses: expenses,
@@ -57,7 +57,7 @@ func New(client llm.Client, expenses *service.Expenses, cfg Config, log *slog.Lo
 // userID берётся только из Telegram-апдейта и замыкается в области доступа инструментов:
 // модель не передаёт и не может подменить владельца трат.
 func (a *Agent) Reply(ctx context.Context, userID int64, history []domain.ChatMessage, text string) (string, error) {
-	scope := service.UserScope(userID)
+	scope := expense.UserScope(userID)
 
 	msgs := make([]llm.Message, 0, len(history)+2)
 	msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: systemPrompt(a.now(), a.loc)})

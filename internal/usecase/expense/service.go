@@ -1,5 +1,5 @@
-// Package service содержит бизнес-логику учёта трат: валидацию и разграничение доступа.
-package service
+// Package expense — сценарии учёта трат: валидация и разграничение доступа.
+package expense
 
 import (
 	"context"
@@ -18,31 +18,18 @@ const (
 	MaxCommentLen    = 500
 )
 
-type ExpenseRepository interface {
-	Create(ctx context.Context, e domain.Expense) (domain.Expense, error)
-	// Get, Update, Delete при ownerID != nil работают только с тратами этого владельца,
-	// иначе возвращают domain.ErrNotFound.
-	Get(ctx context.Context, id uuid.UUID, ownerID *int64) (domain.Expense, error)
-	// List возвращает страницу трат и агрегаты по всей выборке из одного снимка данных.
-	List(ctx context.Context, f domain.ExpenseFilter) ([]domain.Expense, domain.ExpenseSummary, error)
-	Summary(ctx context.Context, f domain.ExpenseFilter) (domain.ExpenseSummary, error)
-	Update(ctx context.Context, id uuid.UUID, ownerID *int64, p domain.ExpensePatch) (domain.Expense, error)
-	// Delete возвращает удалённую трату.
-	Delete(ctx context.Context, id uuid.UUID, ownerID *int64) (domain.Expense, error)
-}
-
-type Expenses struct {
-	repo ExpenseRepository
+type Service struct {
+	repo Repository
 	loc  *time.Location
 	now  func() time.Time
 }
 
-func NewExpenses(repo ExpenseRepository, loc *time.Location) *Expenses {
-	return &Expenses{repo: repo, loc: loc, now: time.Now}
+func NewService(repo Repository, loc *time.Location) *Service {
+	return &Service{repo: repo, loc: loc, now: time.Now}
 }
 
-// NewExpense — данные для создания траты. Нулевой SpentAt означает «сегодня».
-type NewExpense struct {
+// CreateParams — данные для создания траты. Нулевой SpentAt означает «сегодня».
+type CreateParams struct {
 	UserID   int64
 	Amount   domain.Money
 	Category domain.Category
@@ -56,7 +43,7 @@ type ListResult struct {
 	Summary domain.ExpenseSummary
 }
 
-func (s *Expenses) Create(ctx context.Context, scope Scope, in NewExpense) (domain.Expense, error) {
+func (s *Service) Create(ctx context.Context, scope Scope, in CreateParams) (domain.Expense, error) {
 	owner, err := scope.owner()
 	if err != nil {
 		return domain.Expense{}, err
@@ -95,7 +82,7 @@ func (s *Expenses) Create(ctx context.Context, scope Scope, in NewExpense) (doma
 	})
 }
 
-func (s *Expenses) Get(ctx context.Context, scope Scope, id uuid.UUID) (domain.Expense, error) {
+func (s *Service) Get(ctx context.Context, scope Scope, id uuid.UUID) (domain.Expense, error) {
 	owner, err := scope.owner()
 	if err != nil {
 		return domain.Expense{}, err
@@ -103,7 +90,7 @@ func (s *Expenses) Get(ctx context.Context, scope Scope, id uuid.UUID) (domain.E
 	return s.repo.Get(ctx, id, owner)
 }
 
-func (s *Expenses) List(ctx context.Context, scope Scope, f domain.ExpenseFilter) (ListResult, error) {
+func (s *Service) List(ctx context.Context, scope Scope, f domain.ExpenseFilter) (ListResult, error) {
 	f, err := s.prepareFilter(scope, f)
 	if err != nil {
 		return ListResult{}, err
@@ -131,7 +118,7 @@ func (s *Expenses) List(ctx context.Context, scope Scope, f domain.ExpenseFilter
 	return ListResult{Items: items, Summary: sum}, nil
 }
 
-func (s *Expenses) Summary(ctx context.Context, scope Scope, f domain.ExpenseFilter) (domain.ExpenseSummary, error) {
+func (s *Service) Summary(ctx context.Context, scope Scope, f domain.ExpenseFilter) (domain.ExpenseSummary, error) {
 	f, err := s.prepareFilter(scope, f)
 	if err != nil {
 		return domain.ExpenseSummary{}, err
@@ -139,7 +126,7 @@ func (s *Expenses) Summary(ctx context.Context, scope Scope, f domain.ExpenseFil
 	return s.repo.Summary(ctx, f)
 }
 
-func (s *Expenses) Update(ctx context.Context, scope Scope, id uuid.UUID, p domain.ExpensePatch) (domain.Expense, error) {
+func (s *Service) Update(ctx context.Context, scope Scope, id uuid.UUID, p domain.ExpensePatch) (domain.Expense, error) {
 	owner, err := scope.owner()
 	if err != nil {
 		return domain.Expense{}, err
@@ -175,7 +162,7 @@ func (s *Expenses) Update(ctx context.Context, scope Scope, id uuid.UUID, p doma
 }
 
 // Delete удаляет трату и возвращает её, чтобы вызывающий мог назвать, что удалено.
-func (s *Expenses) Delete(ctx context.Context, scope Scope, id uuid.UUID) (domain.Expense, error) {
+func (s *Service) Delete(ctx context.Context, scope Scope, id uuid.UUID) (domain.Expense, error) {
 	owner, err := scope.owner()
 	if err != nil {
 		return domain.Expense{}, err
@@ -184,12 +171,12 @@ func (s *Expenses) Delete(ctx context.Context, scope Scope, id uuid.UUID) (domai
 }
 
 // Today — текущая дата в часовом поясе семьи.
-func (s *Expenses) Today() time.Time {
+func (s *Service) Today() time.Time {
 	return domain.DateOf(s.now(), s.loc)
 }
 
 // prepareFilter накладывает ограничение области доступа и проверяет период.
-func (s *Expenses) prepareFilter(scope Scope, f domain.ExpenseFilter) (domain.ExpenseFilter, error) {
+func (s *Service) prepareFilter(scope Scope, f domain.ExpenseFilter) (domain.ExpenseFilter, error) {
 	owner, err := scope.owner()
 	if err != nil {
 		return f, err
@@ -215,7 +202,7 @@ func (s *Expenses) prepareFilter(scope Scope, f domain.ExpenseFilter) (domain.Ex
 	return f, nil
 }
 
-func (s *Expenses) validateAmount(m domain.Money) error {
+func (s *Service) validateAmount(m domain.Money) error {
 	if m <= 0 {
 		return domain.NewValidationError("amount", "сумма должна быть больше нуля")
 	}
@@ -225,7 +212,7 @@ func (s *Expenses) validateAmount(m domain.Money) error {
 	return nil
 }
 
-func (s *Expenses) validateDate(d time.Time) error {
+func (s *Service) validateDate(d time.Time) error {
 	if d.IsZero() {
 		return domain.NewValidationError("spent_at", "укажите дату")
 	}

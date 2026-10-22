@@ -1,8 +1,8 @@
-package service
+package expense
 
 import "errors"
 
-var errNoScope = errors.New("service: access scope is not set")
+var errNoScope = errors.New("expense: access scope is not set")
 
 // Scope определяет, чьи траты доступны вызывающему.
 // Нулевое значение запрещает доступ — область нужно задать явно.

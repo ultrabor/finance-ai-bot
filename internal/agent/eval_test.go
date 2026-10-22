@@ -16,8 +16,9 @@ import (
 
 	"finance-ai-bot/internal/domain"
 	"finance-ai-bot/internal/llm"
-	"finance-ai-bot/internal/service"
 	"finance-ai-bot/internal/storage/memory"
+	"finance-ai-bot/internal/usecase/expense"
+	"finance-ai-bot/internal/usecase/user"
 )
 
 type evalTurn struct {
@@ -28,7 +29,7 @@ type evalTurn struct {
 // evalEnv — агент на реальной LLM поверх хранилища в памяти.
 type evalEnv struct {
 	agent    *Agent
-	expenses *service.Expenses
+	expenses *expense.Service
 }
 
 func newEvalEnv(t *testing.T) evalEnv {
@@ -56,16 +57,16 @@ func newEvalEnv(t *testing.T) evalEnv {
 
 	store := memory.New()
 	ctx := context.Background()
-	users := service.NewUsers(store.Users())
+	users := user.NewService(store.Users())
 	if _, err := users.Upsert(ctx, domain.User{TelegramID: alice, FirstName: "Алиса"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := users.Upsert(ctx, domain.User{TelegramID: bob, FirstName: "Боб"}); err != nil {
 		t.Fatal(err)
 	}
-	expenses := service.NewExpenses(store.Expenses(), loc)
+	expenses := expense.NewService(store.Expenses(), loc)
 	// Чужая трата: агент Алисы не должен её видеть.
-	if _, err := expenses.Create(ctx, service.UserScope(bob), service.NewExpense{
+	if _, err := expenses.Create(ctx, expense.UserScope(bob), expense.CreateParams{
 		Amount: 999900, Category: domain.CategoryShopping, Comment: "телевизор",
 	}); err != nil {
 		t.Fatal(err)
@@ -92,7 +93,7 @@ func (env evalEnv) run(t *testing.T, turns []evalTurn) {
 				domain.ChatMessage{Role: domain.ChatRoleUser, Content: turn.say},
 				domain.ChatMessage{Role: domain.ChatRoleAssistant, Content: reply})
 
-			res, err := env.expenses.List(ctx, service.UserScope(alice), domain.ExpenseFilter{Limit: 100})
+			res, err := env.expenses.List(ctx, expense.UserScope(alice), domain.ExpenseFilter{Limit: 100})
 			if err != nil {
 				t.Fatal(err)
 			}

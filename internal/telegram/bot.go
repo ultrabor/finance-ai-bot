@@ -15,7 +15,7 @@ import (
 	"github.com/go-telegram/bot/models"
 
 	"finance-ai-bot/internal/domain"
-	"finance-ai-bot/internal/service"
+	"finance-ai-bot/internal/usecase/user"
 )
 
 const (
@@ -84,7 +84,7 @@ type Config struct {
 	AllowedIDs []int64
 }
 
-func New(cfg Config, agent Agent, users *service.Users, history ChatHistory, log *slog.Logger) (*Bot, error) {
+func New(cfg Config, agent Agent, users *user.Service, history ChatHistory, log *slog.Logger) (*Bot, error) {
 	b := &Bot{handler: newHandler(cfg.AllowedIDs, agent, users, history, log), log: log}
 	b.dispatcher = newDispatcher(func(u *models.Update) {
 		// Обработка не зависит от контекста поллинга: при остановке начатое доводим до ответа.

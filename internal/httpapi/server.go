@@ -14,7 +14,8 @@ import (
 	"time"
 
 	"finance-ai-bot/internal/domain"
-	"finance-ai-bot/internal/service"
+	"finance-ai-bot/internal/usecase/expense"
+	"finance-ai-bot/internal/usecase/user"
 )
 
 const maxBodySize = 64 << 10
@@ -25,13 +26,13 @@ type Pinger interface {
 }
 
 type Handler struct {
-	expenses *service.Expenses
-	users    *service.Users
+	expenses *expense.Service
+	users    *user.Service
 	db       Pinger
 	log      *slog.Logger
 }
 
-func New(expenses *service.Expenses, users *service.Users, db Pinger, log *slog.Logger) *Handler {
+func New(expenses *expense.Service, users *user.Service, db Pinger, log *slog.Logger) *Handler {
 	return &Handler{expenses: expenses, users: users, db: db, log: log}
 }
 

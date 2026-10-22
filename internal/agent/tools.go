@@ -13,7 +13,7 @@ import (
 
 	"finance-ai-bot/internal/domain"
 	"finance-ai-bot/internal/llm"
-	"finance-ai-bot/internal/service"
+	"finance-ai-bot/internal/usecase/expense"
 )
 
 const (
@@ -185,7 +185,7 @@ func (e toolError) Error() string { return e.msg }
 
 // runTool выполняет вызов инструмента и всегда возвращает JSON для модели:
 // результат или {"error": "..."}, чтобы модель могла исправиться или объяснить пользователю.
-func (a *Agent) runTool(ctx context.Context, scope service.Scope, done *journal, call llm.ToolCall) string {
+func (a *Agent) runTool(ctx context.Context, scope expense.Scope, done *journal, call llm.ToolCall) string {
 	result, err := a.dispatch(ctx, scope, done, call.Function.Name, []byte(call.Function.Arguments))
 	if err != nil {
 		var (
@@ -213,7 +213,7 @@ func (a *Agent) runTool(ctx context.Context, scope service.Scope, done *journal,
 	return string(data)
 }
 
-func (a *Agent) dispatch(ctx context.Context, scope service.Scope, done *journal, name string, raw []byte) (any, error) {
+func (a *Agent) dispatch(ctx context.Context, scope expense.Scope, done *journal, name string, raw []byte) (any, error) {
 	switch name {
 	case toolAdd:
 		var args addArgs
@@ -250,12 +250,12 @@ func (a *Agent) dispatch(ctx context.Context, scope service.Scope, done *journal
 	}
 }
 
-func (a *Agent) add(ctx context.Context, scope service.Scope, done *journal, args addArgs) (any, error) {
+func (a *Agent) add(ctx context.Context, scope expense.Scope, done *journal, args addArgs) (any, error) {
 	amount, err := domain.MoneyFromFloat(float64(args.Amount))
 	if err != nil {
 		return nil, toolError{"некорректная сумма"}
 	}
-	in := service.NewExpense{Amount: amount, Category: domain.Category(args.Category), Comment: args.Comment}
+	in := expense.CreateParams{Amount: amount, Category: domain.Category(args.Category), Comment: args.Comment}
 	if args.SpentAt != "" {
 		if in.SpentAt, err = parseDateArg("spent_at", args.SpentAt); err != nil {
 			return nil, err
@@ -270,7 +270,7 @@ func (a *Agent) add(ctx context.Context, scope service.Scope, done *journal, arg
 	return mutationView{Added: &v}, nil
 }
 
-func (a *Agent) list(ctx context.Context, scope service.Scope, args listArgs) (any, error) {
+func (a *Agent) list(ctx context.Context, scope expense.Scope, args listArgs) (any, error) {
 	f, err := args.filter()
 	if err != nil {
 		return nil, err
@@ -293,7 +293,7 @@ func (a *Agent) list(ctx context.Context, scope service.Scope, args listArgs) (a
 	return out, nil
 }
 
-func (a *Agent) sum(ctx context.Context, scope service.Scope, args periodArgs) (any, error) {
+func (a *Agent) sum(ctx context.Context, scope expense.Scope, args periodArgs) (any, error) {
 	f, err := args.filter()
 	if err != nil {
 		return nil, err
@@ -311,7 +311,7 @@ func (a *Agent) sum(ctx context.Context, scope service.Scope, args periodArgs) (
 	return out, nil
 }
 
-func (a *Agent) update(ctx context.Context, scope service.Scope, done *journal, args updateArgs) (any, error) {
+func (a *Agent) update(ctx context.Context, scope expense.Scope, done *journal, args updateArgs) (any, error) {
 	id, err := parseID(args.ID)
 	if err != nil {
 		return nil, err
@@ -351,7 +351,7 @@ func (a *Agent) update(ctx context.Context, scope service.Scope, done *journal, 
 	return mutationView{Updated: &v}, nil
 }
 
-func (a *Agent) delete(ctx context.Context, scope service.Scope, done *journal, args deleteArgs) (any, error) {
+func (a *Agent) delete(ctx context.Context, scope expense.Scope, done *journal, args deleteArgs) (any, error) {
 	id, err := parseID(args.ID)
 	if err != nil {
 		return nil, err

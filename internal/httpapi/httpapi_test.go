@@ -12,8 +12,9 @@ import (
 	"time"
 
 	"finance-ai-bot/internal/domain"
-	"finance-ai-bot/internal/service"
 	"finance-ai-bot/internal/storage/memory"
+	"finance-ai-bot/internal/usecase/expense"
+	"finance-ai-bot/internal/usecase/user"
 )
 
 type okPinger struct{}
@@ -23,13 +24,13 @@ func (okPinger) Ping(context.Context) error { return nil }
 func newServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	store := memory.New()
-	users := service.NewUsers(store.Users())
+	users := user.NewService(store.Users())
 	for _, id := range []int64{111, 222} {
 		if _, err := users.Upsert(context.Background(), domain.User{TelegramID: id, FirstName: "u"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	h := New(service.NewExpenses(store.Expenses(), time.UTC), users, okPinger{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := New(expense.NewService(store.Expenses(), time.UTC), users, okPinger{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(h.Routes())
 	t.Cleanup(srv.Close)
 	return srv

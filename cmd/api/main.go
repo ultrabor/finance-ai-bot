@@ -15,8 +15,9 @@ import (
 	"finance-ai-bot/internal/app"
 	"finance-ai-bot/internal/config"
 	"finance-ai-bot/internal/httpapi"
-	"finance-ai-bot/internal/service"
 	"finance-ai-bot/internal/storage/postgres"
+	"finance-ai-bot/internal/usecase/expense"
+	"finance-ai-bot/internal/usecase/user"
 )
 
 func main() {
@@ -71,8 +72,8 @@ func run() error {
 	}
 
 	handler := httpapi.New(
-		service.NewExpenses(postgres.NewExpenseRepo(pool), loc),
-		service.NewUsers(postgres.NewUserRepo(pool)),
+		expense.NewService(postgres.NewExpenseRepo(pool), loc),
+		user.NewService(postgres.NewUserRepo(pool)),
 		pool,
 		log,
 	)

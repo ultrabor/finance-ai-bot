@@ -12,8 +12,9 @@ import (
 
 	"finance-ai-bot/internal/domain"
 	"finance-ai-bot/internal/llm"
-	"finance-ai-bot/internal/service"
 	"finance-ai-bot/internal/storage/memory"
+	"finance-ai-bot/internal/usecase/expense"
+	"finance-ai-bot/internal/usecase/user"
 )
 
 const (
@@ -52,20 +53,20 @@ func say(text string) func([]llm.Message) llm.Message {
 
 type fixture struct {
 	agent    *Agent
-	expenses *service.Expenses
+	expenses *expense.Service
 	llm      *scriptedLLM
 }
 
 func newFixture(t *testing.T, steps ...func([]llm.Message) llm.Message) *fixture {
 	t.Helper()
 	store := memory.New()
-	users := service.NewUsers(store.Users())
+	users := user.NewService(store.Users())
 	for _, id := range []int64{alice, bob} {
 		if _, err := users.Upsert(context.Background(), domain.User{TelegramID: id, FirstName: "u"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	expenses := service.NewExpenses(store.Expenses(), time.UTC)
+	expenses := expense.NewService(store.Expenses(), time.UTC)
 	client := &scriptedLLM{steps: steps}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return &fixture{
@@ -99,7 +100,7 @@ func TestAddExpense(t *testing.T) {
 		t.Errorf("reply = %q", reply)
 	}
 
-	res, err := f.expenses.List(context.Background(), service.UserScope(alice), domain.ExpenseFilter{})
+	res, err := f.expenses.List(context.Background(), expense.UserScope(alice), domain.ExpenseFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +116,7 @@ func TestAddExpense(t *testing.T) {
 // Модель не может изменить чужую трату, даже если узнала её id.
 func TestCannotTouchForeignExpense(t *testing.T) {
 	f := newFixture(t)
-	foreign, err := f.expenses.Create(context.Background(), service.UserScope(bob), service.NewExpense{
+	foreign, err := f.expenses.Create(context.Background(), expense.UserScope(bob), expense.CreateParams{
 		Amount: 120000, Category: domain.CategoryTransport, Comment: "такси",
 	})
 	if err != nil {
@@ -143,7 +144,7 @@ func TestCannotTouchForeignExpense(t *testing.T) {
 			t.Errorf("tool result #%d = %v, want not found", i, r)
 		}
 	}
-	got, err := f.expenses.Get(context.Background(), service.UserScope(bob), foreign.ID)
+	got, err := f.expenses.Get(context.Background(), expense.UserScope(bob), foreign.ID)
 	if err != nil || got.Amount != 120000 {
 		t.Errorf("foreign expense changed: %+v, %v", got, err)
 	}
@@ -152,9 +153,9 @@ func TestCannotTouchForeignExpense(t *testing.T) {
 func TestUpdateLastExpense(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	scope := service.UserScope(alice)
+	scope := expense.UserScope(alice)
 	for _, c := range []string{"такси", "кофе"} {
-		if _, err := f.expenses.Create(ctx, scope, service.NewExpense{Amount: 35000, Category: domain.CategoryFood, Comment: c}); err != nil {
+		if _, err := f.expenses.Create(ctx, scope, expense.CreateParams{Amount: 35000, Category: domain.CategoryFood, Comment: c}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -267,7 +268,7 @@ func TestSystemPromptCalendar(t *testing.T) {
 func TestUpdateIgnoresEmptyFields(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	e, err := f.expenses.Create(ctx, service.UserScope(alice), service.NewExpense{
+	e, err := f.expenses.Create(ctx, expense.UserScope(alice), expense.CreateParams{
 		Amount: 35000, Category: domain.CategoryFood, Comment: "кофе",
 	})
 	if err != nil {
@@ -280,7 +281,7 @@ func TestUpdateIgnoresEmptyFields(t *testing.T) {
 	if _, err := f.agent.Reply(ctx, alice, nil, "последнее было не 350, а 450"); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := f.expenses.Get(ctx, service.UserScope(alice), e.ID)
+	got, _ := f.expenses.Get(ctx, expense.UserScope(alice), e.ID)
 	if got.Amount != 45000 || got.Comment != "кофе" || got.Category != domain.CategoryFood || !got.SpentAt.Equal(e.SpentAt) {
 		t.Errorf("after update: %+v", got)
 	}
@@ -337,7 +338,7 @@ func TestUnconfirmedChangeIsRetried(t *testing.T) {
 	if !strings.HasPrefix(reply, "Записал: такси") {
 		t.Errorf("reply = %q", reply)
 	}
-	res, err := f.expenses.List(context.Background(), service.UserScope(alice), domain.ExpenseFilter{})
+	res, err := f.expenses.List(context.Background(), expense.UserScope(alice), domain.ExpenseFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}

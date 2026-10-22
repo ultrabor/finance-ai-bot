@@ -10,9 +10,10 @@ import (
 	"finance-ai-bot/internal/app"
 	"finance-ai-bot/internal/config"
 	"finance-ai-bot/internal/llm"
-	"finance-ai-bot/internal/service"
 	"finance-ai-bot/internal/storage/postgres"
 	"finance-ai-bot/internal/telegram"
+	"finance-ai-bot/internal/usecase/expense"
+	"finance-ai-bot/internal/usecase/user"
 )
 
 func main() {
@@ -49,7 +50,7 @@ func run() error {
 		return err
 	}
 
-	expenses := service.NewExpenses(postgres.NewExpenseRepo(pool), loc)
+	expenses := expense.NewService(postgres.NewExpenseRepo(pool), loc)
 	client := llm.NewOpenAIClient(llm.OpenAIConfig{
 		BaseURL:     cfg.LLM.BaseURL,
 		APIKey:      cfg.LLM.APIKey,
@@ -62,7 +63,7 @@ func run() error {
 	bot, err := telegram.New(
 		telegram.Config{Token: cfg.Telegram.Token, AllowedIDs: cfg.Telegram.AllowedIDs},
 		ai,
-		service.NewUsers(postgres.NewUserRepo(pool)),
+		user.NewService(postgres.NewUserRepo(pool)),
 		postgres.NewChatRepo(pool),
 		log,
 	)
