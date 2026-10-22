@@ -14,25 +14,18 @@ import (
 	"time"
 
 	"finance-ai-bot/internal/domain"
-	"finance-ai-bot/internal/usecase/expense"
-	"finance-ai-bot/internal/usecase/user"
 )
 
 const maxBodySize = 64 << 10
 
-// Pinger проверяет доступность зависимостей (БД) для /healthz.
-type Pinger interface {
-	Ping(ctx context.Context) error
-}
-
 type Handler struct {
-	expenses *expense.Service
-	users    *user.Service
+	expenses ExpenseUseCase
+	users    UserUseCase
 	db       Pinger
 	log      *slog.Logger
 }
 
-func New(expenses *expense.Service, users *user.Service, db Pinger, log *slog.Logger) *Handler {
+func New(expenses ExpenseUseCase, users UserUseCase, db Pinger, log *slog.Logger) *Handler {
 	return &Handler{expenses: expenses, users: users, db: db, log: log}
 }
 

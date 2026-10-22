@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"finance-ai-bot/internal/agent/llm"
 	"finance-ai-bot/internal/domain"
 	"finance-ai-bot/internal/usecase/expense"
@@ -25,9 +27,18 @@ const (
 // changeVerbs — начала ответов, которыми модель подтверждает изменение трат.
 var changeVerbs = []string{"записал", "изменил", "исправил", "удалил"}
 
+// ExpenseUseCase — сценарии учёта трат, которые агент вызывает через инструменты.
+type ExpenseUseCase interface {
+	Create(ctx context.Context, scope expense.Scope, in expense.CreateParams) (domain.Expense, error)
+	List(ctx context.Context, scope expense.Scope, f domain.ExpenseFilter) (expense.ListResult, error)
+	Summary(ctx context.Context, scope expense.Scope, f domain.ExpenseFilter) (domain.ExpenseSummary, error)
+	Update(ctx context.Context, scope expense.Scope, id uuid.UUID, p domain.ExpensePatch) (domain.Expense, error)
+	Delete(ctx context.Context, scope expense.Scope, id uuid.UUID) (domain.Expense, error)
+}
+
 type Agent struct {
 	llm      llm.Client
-	expenses *expense.Service
+	expenses ExpenseUseCase
 	loc      *time.Location
 	maxSteps int
 	now      func() time.Time
@@ -40,7 +51,7 @@ type Config struct {
 	MaxSteps int
 }
 
-func New(client llm.Client, expenses *expense.Service, cfg Config, log *slog.Logger) *Agent {
+func New(client llm.Client, expenses ExpenseUseCase, cfg Config, log *slog.Logger) *Agent {
 	return &Agent{
 		llm:      client,
 		expenses: expenses,
