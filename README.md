@@ -227,6 +227,14 @@ Browser ──► web (nginx) ──► api ──► usecase ──► PostgreS
 
 ## Решения
 
+- **Три слоя: handler → service → repository.** Классическая трёхслойная схема, названия пакетов — по роли в clean architecture:
+
+  | Слой | Пакеты |
+  |---|---|
+  | handler | `internal/transport/httpapi` (REST), `internal/transport/telegram` (бот); ИИ-агент `internal/agent` — тоже вход в service, только через инструменты LLM |
+  | service | `internal/usecase/expense`, `internal/usecase/user` |
+  | repository | `internal/adapter/storage/postgres` (интерфейсы — в `usecase/*/ports.go`) |
+
 - **Слои и правило зависимостей.** `transport` и `agent` зависят от интерфейсов use case, `usecase` — от портов в `ports.go`, адаптеры подключаются только в `internal/app`. Нарушение ловит depguard (`make lint`).
 - **Весь текст для модели — вне Go-кода.** Системный промпт, подсказки по категориям и подсказка модели, ответившей «Записал…» без вызова инструмента, — `prompts/system.md` в корне репозитория; описания и схемы инструментов — `internal/agent/tools/schemas/*.json`. Промпт читается с диска при старте (`AGENT_PROMPT_PATH`, по умолчанию `prompts/system.md`), поэтому меняется перезапуском, без пересборки; пробный рендер при загрузке не даёт стартовать с битым шаблоном.
 - **HTTP-типы из спеки, кроме двух тел запросов.** Ответы и `UserCreate` генерируются из `api/openapi.yaml` (`make generate`), маппинг домена в них — две функции в `transport/httpapi/dto.go`. Тела `POST`/`PATCH /expenses` разбираются вручную, осознанно: сгенерированные типы молча приняли бы `"amount": "350"`, прогнали бы сумму через `float64` (а нам нужно отклонять больше двух знаков после точки) и не отличили бы отсутствующее поле от `null` (в `PATCH` `null` для `comment` очищает его, а для остальных полей — ошибка 400). Альтернатива — сумма в копейках целым числом — убрала бы ручной разбор, но сломала бы контракт «рубли JSON-числом» для веб-панели. Чтобы ручные структуры не разошлись со спекой, `TestManualRequestsMatchSpec` сверяет их поля со сгенерированными.
