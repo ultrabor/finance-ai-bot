@@ -5,6 +5,7 @@ package prompts
 import (
 	_ "embed"
 	"fmt"
+	"os"
 	"strings"
 	"text/template"
 	"time"
@@ -32,6 +33,26 @@ func Embedded() *Prompts {
 		panic(err) // встроенный шаблон проверяют тесты
 	}
 	return p
+}
+
+// Load читает шаблон из файла и проверяет его пробным рендером, чтобы ошибка
+// (опечатка в поле, неизвестная категория) остановила запуск, а не первый ответ.
+func Load(path string) (*Prompts, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read prompt template: %w", err)
+	}
+	p, err := parse(string(data))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if _, err := p.System(NewCalendar(time.Now(), time.UTC)); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if _, err := p.UnconfirmedNudge(); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return p, nil
 }
 
 func parse(text string) (*Prompts, error) {

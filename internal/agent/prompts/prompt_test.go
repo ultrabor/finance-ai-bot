@@ -111,3 +111,55 @@ func TestParseRejectsBrokenTemplates(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadFromFile(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, text string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	custom := write("custom.tmpl", `Сегодня {{.Today}}, {{label "food"}}.{{define "unconfirmed_nudge"}}Вызови инструмент.{{end}}`)
+	p, err := Load(custom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.System(NewCalendar(fixedNow, time.UTC))
+	if err != nil || got != "Сегодня 2026-10-15, еда." {
+		t.Errorf("System = %q, %v", got, err)
+	}
+	if nudge, _ := p.UnconfirmedNudge(); nudge != "Вызови инструмент." {
+		t.Errorf("nudge = %q", nudge)
+	}
+
+	// Ошибки обнаруживаются при загрузке, а не при первом сообщении.
+	for name, text := range map[string]string{
+		"unknown field.tmpl":    `{{.Tomorrow}}{{define "unconfirmed_nudge"}}x{{end}}`,
+		"unknown category.tmpl": `{{label "beer"}}{{define "unconfirmed_nudge"}}x{{end}}`,
+		"no nudge.tmpl":         `{{.Today}}`,
+	} {
+		if _, err := Load(write(name, text)); err == nil {
+			t.Errorf("%s: broken template accepted", name)
+		}
+	}
+	if _, err := Load(filepath.Join(dir, "missing.tmpl")); err == nil {
+		t.Error("missing file accepted")
+	}
+}
+
+// Встроенный шаблон, загруженный с диска, даёт тот же промпт.
+func TestLoadEmbeddedFileMatchesEmbedded(t *testing.T) {
+	p, err := Load("system.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cal := NewCalendar(fixedNow, moscow(t))
+	fromDisk, _ := p.System(cal)
+	embedded, _ := Embedded().System(cal)
+	if fromDisk != embedded {
+		t.Error("system.tmpl from disk renders differently from the embedded copy")
+	}
+}

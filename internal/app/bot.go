@@ -1,11 +1,13 @@
 package app
 
 import (
+	"cmp"
 	"context"
 
 	"finance-ai-bot/internal/adapter/llm/openai"
 	"finance-ai-bot/internal/adapter/storage/postgres"
 	"finance-ai-bot/internal/agent"
+	"finance-ai-bot/internal/agent/prompts"
 	"finance-ai-bot/internal/config"
 	"finance-ai-bot/internal/transport/telegram"
 	"finance-ai-bot/internal/usecase/expense"
@@ -30,8 +32,12 @@ func RunBot(ctx context.Context, cfg *config.Config) error {
 		Temperature: cfg.LLM.Temperature,
 		Timeout:     cfg.LLM.Timeout,
 	})
+	agentPrompts, err := loadPrompts(cfg.LLM.PromptPath)
+	if err != nil {
+		return err
+	}
 	expenses := expense.NewService(postgres.NewExpenseRepo(rt.pool), rt.loc)
-	ai := agent.New(client, expenses, agent.Config{Location: rt.loc, MaxSteps: cfg.LLM.MaxSteps}, rt.log)
+	ai := agent.New(client, expenses, agent.Config{Location: rt.loc, MaxSteps: cfg.LLM.MaxSteps, Prompts: agentPrompts}, rt.log)
 
 	bot, err := telegram.New(
 		telegram.Config{Token: cfg.Telegram.Token, AllowedIDs: cfg.Telegram.AllowedIDs},
@@ -44,8 +50,17 @@ func RunBot(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
-	rt.log.Info("llm configured", "base_url", cfg.LLM.BaseURL, "model", cfg.LLM.Model)
+	rt.log.Info("llm configured", "base_url", cfg.LLM.BaseURL, "model", cfg.LLM.Model,
+		"prompt", cmp.Or(cfg.LLM.PromptPath, "embedded"))
 	bot.Start(ctx)
 	rt.log.Info("shutting down")
 	return nil
+}
+
+// loadPrompts читает шаблон промптов из path; пустой path — встроенный шаблон.
+func loadPrompts(path string) (*prompts.Prompts, error) {
+	if path == "" {
+		return prompts.Embedded(), nil
+	}
+	return prompts.Load(path)
 }
