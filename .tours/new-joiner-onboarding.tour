@@ -39,9 +39,9 @@
       "pattern": "func \\(a \\*Agent\\) Reply\\("
     },
     {
-      "file": "internal/agent/prompts/system.tmpl",
+      "file": "prompts/system.md",
       "title": "Системный промпт — шаблон",
-      "description": "Текст промпта — отдельный файл (`go:embed` + `text/template`), данные — именованные поля `prompts.Calendar`: даты считает `NewCalendar` в часовом поясе семьи, категории приходят из `domain.Categories`.\n\nМеняете текст — запустите `go test ./internal/agent/prompts -update` и проверьте diff `testdata/system.golden`: так правка промпта видна на ревью.",
+      "description": "Текст промпта — отдельный файл в корне репозитория (`text/template`), данные — именованные поля `prompts.Calendar`: даты считает `NewCalendar` в часовом поясе семьи, названия категорий даёт функция `label` из `domain`.\n\nФайл читается с диска при старте бота (`AGENT_PROMPT_PATH`, по умолчанию `prompts/system.md`; в Docker compose монтирует `./prompts`), поэтому правка требует только перезапуска. `prompts.Load` делает пробный рендер — с битым шаблоном бот не стартует.\n\nМеняете текст — запустите `go test ./internal/agent/prompts -update` и проверьте diff `testdata/system.golden`: так правка промпта видна на ревью.",
       "pattern": "Календарь \\(часовой пояс"
     },
     {

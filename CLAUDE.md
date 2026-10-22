@@ -17,7 +17,7 @@ Family expense tracker: Telegram bot with an LLM agent + web panel + REST API. G
 
 - `internal/domain` — entities, `Money`, `Category`, errors. Imports nothing from `internal/`.
 - `internal/usecase/{expense,user}` — business rules; repository ports in `ports.go`.
-- `internal/agent` — LLM ↔ tools loop and journal; `agent/llm` (LLM port), `agent/tools` (one file per tool; model-facing description + JSON schema in `agent/tools/schemas/<name>.json`), `agent/prompts` (`system.tmpl` + golden test).
+- `internal/agent` — LLM ↔ tools loop and journal; `agent/llm` (LLM port), `agent/tools` (one file per tool; model-facing description + JSON schema in `agent/tools/schemas/<name>.json`), `agent/prompts` (loads and validates the prompt, golden test). Prompt text: `prompts/system.md` at the repo root, read from disk at startup.
 - `internal/adapter` — `llm/openai`, `storage/postgres`: implement ports.
 - `internal/testutil/memstore` — in-memory store for tests and eval only; depguard forbids it in non-test code.
 - `internal/transport/{httpapi,telegram}` — depend on use case interfaces they declare.
@@ -34,6 +34,6 @@ Family expense tracker: Telegram bot with an LLM agent + web panel + REST API. G
 - Bot handles only private chats; `FAMILY_TELEGRAM_IDS` is required unless `TELEGRAM_ALLOW_ALL=true`.
 - `memstore` must mirror postgres semantics (ordering, filters) — tests rely on it.
 - REST contract lives in `api/openapi.yaml`. After changing it run `make generate` (Go models → `internal/transport/httpapi/types.gen.go`, never edit by hand) and update the handlers and `web/src/api/types.ts`.
-- Every text the model reads lives outside Go code: system prompt, category hints and the retry nudge in `internal/agent/prompts/system.tmpl`, tool descriptions/schemas in `internal/agent/tools/schemas/*.json`. System prompt text lives in `internal/agent/prompts/system.tmpl`; after editing run `go test ./internal/agent/prompts -update` and review `testdata/system.golden`.
+- Every text the model reads lives outside Go code: system prompt, category hints and the retry nudge in `prompts/system.md` (read from disk at startup via `AGENT_PROMPT_PATH`, default `prompts/system.md`; not embedded), tool descriptions/schemas in `internal/agent/tools/schemas/*.json`. After editing `prompts/system.md` run `go test ./internal/agent/prompts -update` and review `testdata/system.golden`.
 - New migrations: `migrations/0000N_*.sql` (goose, embedded via `migrations/embed.go`).
 - User-facing text (bot replies, API error messages, UI) is Russian; code comments are Russian, concise.
