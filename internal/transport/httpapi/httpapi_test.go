@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -62,7 +64,7 @@ func TestExpenseCRUD(t *testing.T) {
 	srv := newServer(t)
 	today := time.Now().UTC().Format(domain.DateLayout)
 
-	var created expenseDTO
+	var created Expense
 	do(t, srv, "POST", "/api/v1/expenses",
 		`{"user_id":111,"amount":350.5,"category":"food","spent_at":"`+today+`","comment":"кофе"}`,
 		http.StatusCreated, &created)
@@ -73,7 +75,7 @@ func TestExpenseCRUD(t *testing.T) {
 		`{"user_id":222,"amount":1200,"category":"transport","spent_at":"`+today+`"}`,
 		http.StatusCreated, nil)
 
-	var list expenseListDTO
+	var list ExpenseList
 	do(t, srv, "GET", "/api/v1/expenses?user_id=111", "", http.StatusOK, &list)
 	if list.Total != 1 || list.Sum != 350.5 || len(list.Items) != 1 {
 		t.Fatalf("filtered list = %+v", list)
@@ -83,15 +85,15 @@ func TestExpenseCRUD(t *testing.T) {
 		t.Fatalf("category list = %+v", list)
 	}
 
-	var updated expenseDTO
-	do(t, srv, "PATCH", "/api/v1/expenses/"+created.ID, `{"amount":450,"comment":null}`, http.StatusOK, &updated)
+	var updated Expense
+	do(t, srv, "PATCH", "/api/v1/expenses/"+created.ID.String(), `{"amount":450,"comment":null}`, http.StatusOK, &updated)
 	if updated.Amount != 450 || updated.Comment != nil || updated.Category != "food" {
 		t.Fatalf("updated = %+v", updated)
 	}
 
-	do(t, srv, "DELETE", "/api/v1/expenses/"+created.ID, "", http.StatusNoContent, nil)
-	do(t, srv, "GET", "/api/v1/expenses/"+created.ID, "", http.StatusNotFound, nil)
-	do(t, srv, "DELETE", "/api/v1/expenses/"+created.ID, "", http.StatusNotFound, nil)
+	do(t, srv, "DELETE", "/api/v1/expenses/"+created.ID.String(), "", http.StatusNoContent, nil)
+	do(t, srv, "GET", "/api/v1/expenses/"+created.ID.String(), "", http.StatusNotFound, nil)
+	do(t, srv, "DELETE", "/api/v1/expenses/"+created.ID.String(), "", http.StatusNotFound, nil)
 }
 
 func TestValidationErrors(t *testing.T) {
@@ -107,15 +109,15 @@ func TestValidationErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var resp errorResponse
+			var resp Error
 			do(t, srv, "POST", "/api/v1/expenses", tt.body, http.StatusBadRequest, &resp)
-			if resp.Error.Code != "validation_error" || resp.Error.Field != tt.field {
+			if resp.Error.Code != "validation_error" || deref(resp.Error.Field) != tt.field {
 				t.Errorf("error = %+v, want field %q", resp.Error, tt.field)
 			}
 		})
 	}
 
-	var resp errorResponse
+	var resp Error
 	do(t, srv, "POST", "/api/v1/expenses", `{"user_id":`, http.StatusBadRequest, &resp)
 	if resp.Error.Code != "bad_request" {
 		t.Errorf("malformed JSON: %+v", resp.Error)
@@ -126,19 +128,19 @@ func TestValidationErrors(t *testing.T) {
 func TestUsersAndCategories(t *testing.T) {
 	srv := newServer(t)
 
-	var created userDTO
+	var created User
 	do(t, srv, "POST", "/api/v1/users", `{"telegram_id":333,"first_name":"Мама","username":"@mama"}`, http.StatusCreated, &created)
 	if created.DisplayName != "Мама" || created.Username == nil || *created.Username != "mama" {
 		t.Fatalf("created = %+v", created)
 	}
 
-	var users itemsResponse[userDTO]
+	var users UserList
 	do(t, srv, "GET", "/api/v1/users", "", http.StatusOK, &users)
 	if len(users.Items) != 3 {
 		t.Errorf("users = %d, want 3", len(users.Items))
 	}
 
-	var cats itemsResponse[categoryDTO]
+	var cats CategoryList
 	do(t, srv, "GET", "/api/v1/categories", "", http.StatusOK, &cats)
 	if len(cats.Items) != len(domain.Categories) || cats.Items[0].Label != "еда" {
 		t.Errorf("categories = %+v", cats.Items)
@@ -147,11 +149,11 @@ func TestUsersAndCategories(t *testing.T) {
 
 func TestStrictDecoding(t *testing.T) {
 	srv := newServer(t)
-	var created expenseDTO
+	var created Expense
 	do(t, srv, "POST", "/api/v1/expenses",
 		`{"user_id":111,"amount":100,"category":"food","spent_at":"2026-01-01","comment":"обед"}`,
 		http.StatusCreated, &created)
-	path := "/api/v1/expenses/" + created.ID
+	path := "/api/v1/expenses/" + created.ID.String()
 
 	tests := []struct {
 		name, method, path, body string
@@ -179,7 +181,7 @@ func TestStrictDecoding(t *testing.T) {
 		})
 	}
 
-	var notAllowed errorResponse
+	var notAllowed Error
 	do(t, srv, "DELETE", "/api/v1/expenses", "", http.StatusMethodNotAllowed, &notAllowed)
 	if notAllowed.Error.Code != "method_not_allowed" {
 		t.Errorf("405 body = %+v", notAllowed)
@@ -194,15 +196,45 @@ func TestStrictDecoding(t *testing.T) {
 	if got := resp.Header.Get("Allow"); got != "GET, HEAD, PATCH, DELETE" {
 		t.Errorf("Allow = %q", got)
 	}
-	var tooLarge errorResponse
+	var tooLarge Error
 	do(t, srv, "POST", "/api/v1/expenses", `{"user_id":111,"amount":1000000000,"category":"food","spent_at":"2026-01-01"}`, http.StatusBadRequest, &tooLarge)
 	if !strings.Contains(tooLarge.Error.Message, "слишком большая") {
 		t.Errorf("too large message = %q", tooLarge.Error.Message)
 	}
 
-	var got expenseDTO
+	var got Expense
 	do(t, srv, "GET", path, "", http.StatusOK, &got)
 	if got.Amount != 100 || got.Comment == nil || *got.Comment != "обед" {
 		t.Errorf("expense changed by rejected requests: %+v", got)
 	}
+}
+
+// Тела запросов, разбираемые вручную, должны совпадать по полям со схемами из спеки.
+func TestManualRequestsMatchSpec(t *testing.T) {
+	tests := []struct {
+		name         string
+		manual, spec any
+	}{
+		{"ExpenseCreate", createExpenseRequest{}, ExpenseCreate{}},
+		{"ExpenseUpdate", updateExpenseRequest{}, ExpenseUpdate{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, want := jsonFields(tt.manual), jsonFields(tt.spec)
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("fields = %v, spec %v", got, want)
+			}
+		})
+	}
+}
+
+func jsonFields(v any) []string {
+	typ := reflect.TypeOf(v)
+	out := make([]string, 0, typ.NumField())
+	for i := range typ.NumField() {
+		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
+		out = append(out, name)
+	}
+	slices.Sort(out)
+	return out
 }

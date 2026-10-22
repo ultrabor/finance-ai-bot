@@ -34,6 +34,10 @@ test:
 eval:
 	go test -tags=eval -run TestEval -v -count=1 ./internal/agent/
 
+# Типы HTTP API из api/openapi.yaml (oapi-codegen)
+generate:
+	go generate ./...
+
 fmt:
 	go fmt ./...
 

@@ -27,13 +27,13 @@ func (h *Handler) listExpenses(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	out := expenseListDTO{
-		Items: make([]expenseDTO, 0, len(res.Items)),
+	out := ExpenseList{
+		Items: make([]Expense, 0, len(res.Items)),
 		Total: res.Summary.Count,
 		Sum:   res.Summary.Total.Float(),
 	}
 	for _, e := range res.Items {
-		out.Items = append(out.Items, toExpenseDTO(e))
+		out.Items = append(out.Items, toExpense(e))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -71,7 +71,7 @@ func (h *Handler) createExpense(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toExpenseDTO(e))
+	writeJSON(w, http.StatusCreated, toExpense(e))
 }
 
 func (h *Handler) getExpense(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +85,7 @@ func (h *Handler) getExpense(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toExpenseDTO(e))
+	writeJSON(w, http.StatusOK, toExpense(e))
 }
 
 func (h *Handler) updateExpense(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +110,7 @@ func (h *Handler) updateExpense(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toExpenseDTO(e))
+	writeJSON(w, http.StatusOK, toExpense(e))
 }
 
 func (h *Handler) deleteExpense(w http.ResponseWriter, r *http.Request) {

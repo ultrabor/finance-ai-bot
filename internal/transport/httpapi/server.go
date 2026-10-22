@@ -66,13 +66,11 @@ func notRouted(mux *http.ServeMux, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(allowed) == 0 {
-		writeJSON(w, http.StatusNotFound, errorResponse{Error: errorBody{Code: "not_found", Message: "маршрут не найден"}})
+		writeJSON(w, http.StatusNotFound, apiError(ErrorCodeNotFound, "маршрут не найден"))
 		return
 	}
 	w.Header().Set("Allow", strings.Join(allowed, ", "))
-	writeJSON(w, http.StatusMethodNotAllowed, errorResponse{Error: errorBody{
-		Code: "method_not_allowed", Message: "метод не поддерживается для этого пути",
-	}})
+	writeJSON(w, http.StatusMethodNotAllowed, apiError(ErrorCodeMethodNotAllowed, "метод не поддерживается для этого пути"))
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
@@ -87,11 +85,11 @@ func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listCategories(w http.ResponseWriter, _ *http.Request) {
-	items := make([]categoryDTO, 0, len(domain.Categories))
+	items := make([]Category, 0, len(domain.Categories))
 	for _, c := range domain.Categories {
-		items = append(items, categoryDTO{Code: string(c), Label: c.Label()})
+		items = append(items, Category{Code: CategoryCode(c), Label: c.Label()})
 	}
-	writeJSON(w, http.StatusOK, itemsResponse[categoryDTO]{Items: items})
+	writeJSON(w, http.StatusOK, CategoryList{Items: items})
 }
 
 // errBadRequest — ошибка разбора запроса (не путать с бизнес-валидацией).
@@ -111,22 +109,18 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 	)
 	switch {
 	case errors.As(err, &tooLarge):
-		writeJSON(w, http.StatusRequestEntityTooLarge, errorResponse{Error: errorBody{
-			Code: "payload_too_large", Message: "слишком большое тело запроса",
-		}})
+		writeJSON(w, http.StatusRequestEntityTooLarge, apiError(ErrorCodePayloadTooLarge, "слишком большое тело запроса"))
 	case errors.As(err, &validation):
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: errorBody{
-			Code: "validation_error", Message: validation.Message, Field: validation.Field,
+		writeJSON(w, http.StatusBadRequest, Error{Error: ErrorBody{
+			Code: ErrorCodeValidationError, Message: validation.Message, Field: nullable(validation.Field),
 		}})
 	case errors.As(err, &bad):
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: errorBody{Code: "bad_request", Message: bad.msg}})
+		writeJSON(w, http.StatusBadRequest, apiError(ErrorCodeBadRequest, bad.msg))
 	case errors.Is(err, domain.ErrNotFound):
-		writeJSON(w, http.StatusNotFound, errorResponse{Error: errorBody{Code: "not_found", Message: "не найдено"}})
+		writeJSON(w, http.StatusNotFound, apiError(ErrorCodeNotFound, "не найдено"))
 	default:
 		h.log.ErrorContext(r.Context(), "request failed", "method", r.Method, "path", r.URL.Path, "error", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: errorBody{
-			Code: "internal_error", Message: "внутренняя ошибка сервера",
-		}})
+		writeJSON(w, http.StatusInternalServerError, apiError(ErrorCodeInternalError, "внутренняя ошибка сервера"))
 	}
 }
 
@@ -189,9 +183,7 @@ func (h *Handler) recoverer(next http.Handler) http.Handler {
 					panic(v)
 				}
 				h.log.ErrorContext(r.Context(), "panic", "value", v, "stack", string(debug.Stack()))
-				writeJSON(w, http.StatusInternalServerError, errorResponse{Error: errorBody{
-					Code: "internal_error", Message: "внутренняя ошибка сервера",
-				}})
+				writeJSON(w, http.StatusInternalServerError, apiError(ErrorCodeInternalError, "внутренняя ошибка сервера"))
 			}
 		}()
 		next.ServeHTTP(w, r)

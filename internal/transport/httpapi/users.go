@@ -13,15 +13,15 @@ func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	items := make([]userDTO, 0, len(users))
+	items := make([]User, 0, len(users))
 	for _, u := range users {
-		items = append(items, toUserDTO(u))
+		items = append(items, toUser(u))
 	}
-	writeJSON(w, http.StatusOK, itemsResponse[userDTO]{Items: items})
+	writeJSON(w, http.StatusOK, UserList{Items: items})
 }
 
 func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
-	var req createUserRequest
+	var req UserCreate
 	if err := decodeJSON(w, r, &req); err != nil {
 		h.writeError(w, r, err)
 		return
@@ -34,13 +34,13 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
 	}
 	u, err := h.users.Upsert(r.Context(), domain.User{
 		TelegramID: req.TelegramID,
-		Username:   req.Username,
+		Username:   deref(req.Username),
 		FirstName:  req.FirstName,
-		LastName:   req.LastName,
+		LastName:   deref(req.LastName),
 	})
 	if err != nil {
 		h.writeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toUserDTO(u))
+	writeJSON(w, http.StatusCreated, toUser(u))
 }

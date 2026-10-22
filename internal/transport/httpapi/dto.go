@@ -2,72 +2,30 @@ package httpapi
 
 import (
 	"encoding/json"
-	"time"
+
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"finance-ai-bot/internal/domain"
 )
 
-type expenseDTO struct {
-	ID        string    `json:"id"`
-	UserID    int64     `json:"user_id"`
-	Amount    float64   `json:"amount"`
-	Category  string    `json:"category"`
-	SpentAt   string    `json:"spent_at"`
-	Comment   *string   `json:"comment"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
+// Типы ответов и UserCreate генерируются из api/openapi.yaml в types.gen.go (make generate).
+// Здесь — мапперы домена в них и тела, которые приходится разбирать вручную.
 
-func toExpenseDTO(e domain.Expense) expenseDTO {
-	dto := expenseDTO{
-		ID:        e.ID.String(),
+func toExpense(e domain.Expense) Expense {
+	return Expense{
+		ID:        e.ID,
 		UserID:    e.UserID,
 		Amount:    e.Amount.Float(),
-		Category:  string(e.Category),
-		SpentAt:   e.SpentAt.Format(domain.DateLayout),
+		Category:  CategoryCode(e.Category),
+		SpentAt:   openapi_types.Date{Time: e.SpentAt},
+		Comment:   nullable(e.Comment),
 		CreatedAt: e.CreatedAt,
 		UpdatedAt: e.UpdatedAt,
 	}
-	if e.Comment != "" {
-		dto.Comment = &e.Comment
-	}
-	return dto
 }
 
-type expenseListDTO struct {
-	Items []expenseDTO `json:"items"`
-	Total int          `json:"total"`
-	Sum   float64      `json:"sum"`
-}
-
-// Сумма принимается сырым JSON, чтобы отличать число от строки ("350" отклоняется).
-type createExpenseRequest struct {
-	UserID   int64           `json:"user_id"`
-	Amount   json.RawMessage `json:"amount"`
-	Category string          `json:"category"`
-	SpentAt  string          `json:"spent_at"`
-	Comment  *string         `json:"comment"`
-}
-
-// updateExpenseRequest различает отсутствующее поле (nil) и явный null через json.RawMessage.
-type updateExpenseRequest struct {
-	Amount   json.RawMessage `json:"amount"`
-	Category json.RawMessage `json:"category"`
-	SpentAt  json.RawMessage `json:"spent_at"`
-	Comment  json.RawMessage `json:"comment"`
-}
-
-type userDTO struct {
-	TelegramID  int64     `json:"telegram_id"`
-	Username    *string   `json:"username"`
-	FirstName   string    `json:"first_name"`
-	LastName    *string   `json:"last_name"`
-	DisplayName string    `json:"display_name"`
-	CreatedAt   time.Time `json:"created_at"`
-}
-
-func toUserDTO(u domain.User) userDTO {
-	return userDTO{
+func toUser(u domain.User) User {
+	return User{
 		TelegramID:  u.TelegramID,
 		Username:    nullable(u.Username),
 		FirstName:   u.FirstName,
@@ -77,30 +35,29 @@ func toUserDTO(u domain.User) userDTO {
 	}
 }
 
-type createUserRequest struct {
-	TelegramID int64  `json:"telegram_id"`
-	FirstName  string `json:"first_name"`
-	LastName   string `json:"last_name"`
-	Username   string `json:"username"`
+// Тела ExpenseCreate и ExpenseUpdate разбираются вручную: сгенерированные типы
+// не отличают строку "350" от числа, теряют лишние знаки суммы при разборе во float64
+// и не различают отсутствующее поле и null. Набор полей сверяется со спекой в тестах.
+
+// createExpenseRequest — ExpenseCreate; сумма сырым JSON, чтобы отклонять строки.
+type createExpenseRequest struct {
+	UserID   int64           `json:"user_id"`
+	Amount   json.RawMessage `json:"amount"`
+	Category string          `json:"category"`
+	SpentAt  string          `json:"spent_at"`
+	Comment  *string         `json:"comment"`
 }
 
-type categoryDTO struct {
-	Code  string `json:"code"`
-	Label string `json:"label"`
+// updateExpenseRequest — ExpenseUpdate; отсутствующее поле (nil) отличается от явного null.
+type updateExpenseRequest struct {
+	Amount   json.RawMessage `json:"amount"`
+	Category json.RawMessage `json:"category"`
+	SpentAt  json.RawMessage `json:"spent_at"`
+	Comment  json.RawMessage `json:"comment"`
 }
 
-type itemsResponse[T any] struct {
-	Items []T `json:"items"`
-}
-
-type errorBody struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Field   string `json:"field,omitempty"`
-}
-
-type errorResponse struct {
-	Error errorBody `json:"error"`
+func apiError(code ErrorCode, msg string) Error {
+	return Error{Error: ErrorBody{Code: code, Message: msg}}
 }
 
 func nullable(s string) *string {
@@ -108,4 +65,11 @@ func nullable(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

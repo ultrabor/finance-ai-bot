@@ -4,6 +4,7 @@ Family expense tracker: Telegram bot with an LLM agent + web panel + REST API. G
 
 ## Commands
 
+- `make generate` — regenerate HTTP models from `api/openapi.yaml` (oapi-codegen, needs network on first run)
 - `make test` — Go tests with race detector (no DB/LLM needed; uses `internal/storage/memory`)
 - `make test-integration` — SQL repository tests on a throwaway Postgres container (`-tags=integration`, needs Docker)
 - `make eval` — agent scenarios against a real LLM (`-tags=eval`, needs `LLM_*` env)
@@ -20,6 +21,6 @@ Family expense tracker: Telegram bot with an LLM agent + web panel + REST API. G
 - Mutating agent tools (`internal/agent/tools`) must call `turn.Journal.Record` so the user learns about applied changes even if the LLM fails afterwards.
 - Bot handles only private chats; `FAMILY_TELEGRAM_IDS` is required unless `TELEGRAM_ALLOW_ALL=true`.
 - `memory` store must mirror postgres semantics (ordering, filters) — tests rely on it.
-- REST contract lives in `api/openapi.yaml` — update it together with `internal/httpapi` and `web/src/api/types.ts`.
+- REST contract lives in `api/openapi.yaml`. After changing it run `make generate` (Go models → `internal/transport/httpapi/types.gen.go`, never edit by hand) and update the handlers and `web/src/api/types.ts`.
 - New migrations: `migrations/0000N_*.sql` (goose, embedded via `migrations/embed.go`).
 - User-facing text (bot replies, API error messages, UI) is Russian; code comments are Russian, concise.

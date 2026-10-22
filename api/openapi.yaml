@@ -88,11 +88,7 @@ paths:
           description: Список
           content:
             application/json:
-              schema:
-                type: object
-                required: [items]
-                properties:
-                  items: { type: array, items: { $ref: '#/components/schemas/User' } }
+              schema: { $ref: '#/components/schemas/UserList' }
     post:
       summary: Добавить члена семьи вручную (обычно добавляется при первом сообщении боту)
       description: |
@@ -132,11 +128,7 @@ paths:
           description: Категории
           content:
             application/json:
-              schema:
-                type: object
-                required: [items]
-                properties:
-                  items: { type: array, items: { $ref: '#/components/schemas/Category' } }
+              schema: { $ref: '#/components/schemas/CategoryList' }
 
 components:
   responses:
@@ -158,13 +150,19 @@ components:
         code: { $ref: '#/components/schemas/CategoryCode' }
         label: { type: string, example: еда }
 
+    CategoryList:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Category' } }
+
     Expense:
       type: object
       required: [id, user_id, amount, category, spent_at, comment, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         user_id: { type: integer, format: int64 }
-        amount: { type: number, example: 350.5 }
+        amount: { type: number, format: double, example: 350.5 }
         category: { $ref: '#/components/schemas/CategoryCode' }
         spent_at: { type: string, format: date }
         comment: { type: string, nullable: true }
@@ -177,14 +175,14 @@ components:
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/Expense' } }
         total: { type: integer, description: Количество трат по фильтру без учёта limit/offset }
-        sum: { type: number, description: Сумма трат по фильтру без учёта limit/offset }
+        sum: { type: number, format: double, description: Сумма трат по фильтру без учёта limit/offset }
 
     ExpenseCreate:
       type: object
       required: [user_id, amount, category, spent_at]
       properties:
         user_id: { type: integer, format: int64 }
-        amount: { type: number, exclusiveMinimum: true, minimum: 0, maximum: 100000000 }
+        amount: { type: number, format: double, exclusiveMinimum: true, minimum: 0, maximum: 100000000 }
         category: { $ref: '#/components/schemas/CategoryCode' }
         spent_at: { type: string, format: date }
         comment: { type: string, nullable: true, maxLength: 500 }
@@ -195,7 +193,7 @@ components:
         Передаются только изменяемые поля. `comment` = null или "" очищает комментарий.
         null для amount, category и spent_at недопустим (400).
       properties:
-        amount: { type: number, exclusiveMinimum: true, minimum: 0, maximum: 100000000 }
+        amount: { type: number, format: double, exclusiveMinimum: true, minimum: 0, maximum: 100000000 }
         category: { $ref: '#/components/schemas/CategoryCode' }
         spent_at: { type: string, format: date }
         comment: { type: string, nullable: true, maxLength: 500 }
@@ -211,6 +209,12 @@ components:
         display_name: { type: string, example: Иван Петров }
         created_at: { type: string, format: date-time }
 
+    UserList:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/User' } }
+
     UserCreate:
       type: object
       required: [telegram_id, first_name]
@@ -224,10 +228,16 @@ components:
       type: object
       required: [error]
       properties:
-        error:
-          type: object
-          required: [code, message]
-          properties:
-            code: { type: string, enum: [validation_error, not_found, method_not_allowed, bad_request, payload_too_large, internal_error] }
-            message: { type: string }
-            field: { type: string }
+        error: { $ref: '#/components/schemas/ErrorBody' }
+
+    ErrorBody:
+      type: object
+      required: [code, message]
+      properties:
+        code: { $ref: '#/components/schemas/ErrorCode' }
+        message: { type: string }
+        field: { type: string, description: "Поле запроса, не прошедшее проверку (для validation_error)" }
+
+    ErrorCode:
+      type: string
+      enum: [validation_error, not_found, method_not_allowed, bad_request, payload_too_large, internal_error]

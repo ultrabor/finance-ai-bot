@@ -1,0 +1,9 @@
+# Конфигурация oapi-codegen: только модели, хендлеры пишутся вручную.
+package: httpapi
+output: types.gen.go
+generate:
+  models: true
+compatibility:
+  always-prefix-enum-values: true
+output-options:
+  name-normalizer: ToCamelCaseWithInitialisms
