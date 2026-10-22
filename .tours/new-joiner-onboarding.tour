@@ -27,7 +27,7 @@
       "pattern": "func \\(d \\*dispatcher\\) dispatch\\("
     },
     {
-      "file": "internal/transport/telegram/bot.go",
+      "file": "internal/transport/telegram/handler.go",
       "title": "handle: фильтры перед агентом",
       "description": "До LLM доходит только то, что прошло все проверки:\n\n1. `accepts` — только личные чаты (в группе траты увидели бы все)\n2. `isFamily` — `FAMILY_TELEGRAM_IDS`; пустой список = пускаем всех (только при `TELEGRAM_ALLOW_ALL=true`, см. config)\n3. пустой текст, `/start`, слишком длинное сообщение\n4. `registerUser` — upsert в `users`, иначе FK на `expenses` упадёт\n\nЗатем: последние 10 сообщений за 30 минут → `agent.Reply` → сохранение пары в историю.\n\nGotcha (`saveCtx` в конце `handle`): история сохраняется с `context.WithoutCancel`, чтобы ответ попал в историю даже после истечения `replyTimeout`.",
       "pattern": "func \\(h \\*handler\\) handle\\("
