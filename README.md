@@ -153,13 +153,17 @@ curl -s -X DELETE $API/expenses/<id> -o /dev/null -w '%{http_code}\n'   # 204
 make test              # unit-тесты с -race; без БД и LLM
 make test-integration  # SQL-репозитории на одноразовом Postgres в Docker (порт ITEST_PORT=55432), БД приложения не трогается
 make eval              # диалоги из ТЗ на реальной LLM (нужны LLM_* в .env), проверка состояния базы после каждой фразы
+make lint              # golangci-lint, включая depguard-правила слоёв
+make generate          # перегенерировать типы HTTP API из api/openapi.yaml
 ```
 
 Нужен Go 1.26+. Что покрыто:
 
-- **домен и сервис** — деньги в копейках, валидация, изоляция пользователей;
-- **HTTP API** через `httptest`, включая строгий разбор JSON;
-- **агент** с заскриптованной фейковой LLM — вызов инструментов, чужие траты, лимит шагов, частичный успех, ложное «Записал» без вызова инструмента, календарь в промпте;
+- **домен и use case** — деньги в копейках, валидация, изоляция пользователей;
+- **HTTP API** через `httptest`, включая строгий разбор JSON и сверку разбираемых вручную тел со спекой;
+- **агент** с заскриптованной фейковой LLM — вызов инструментов, чужие траты, лимит шагов, частичный успех, ложное «Записал» без вызова инструмента;
+- **инструменты агента** — схемы, разбор аргументов, ошибки для модели, запись в журнал;
+- **системный промпт** — golden-файл рендера на фиксированную дату (`go test ./internal/agent/prompts -update` после правки шаблона), календарь, подсказки для всех категорий;
 - **LLM-клиент** — формат запроса, ретраи;
 - **Telegram** — белый список, группы, команды, длина ответа, очереди пользователей;
 - **интеграционные** — владелец трат, частичное обновление, поиск с `%`/`_`, итоги, ограничения БД.
@@ -181,21 +185,27 @@ Makefile читает `.env`, но переменные окружения ва�
 Telegram ──long polling──► bot ──► agent ──► LLM (OpenAI-compatible, tool calling)
                             │        │
                             ▼        ▼
-Browser ──► web (nginx) ──► api ──► service ──► PostgreSQL
+Browser ──► web (nginx) ──► api ──► usecase ──► PostgreSQL
 ```
 
 | Путь | Назначение |
 |---|---|
-| `cmd/api`, `cmd/bot` | два бинарника из одного Docker-образа |
+| `cmd/api`, `cmd/bot` | два бинарника из одного Docker-образа; только загружают конфиг и вызывают `internal/app` |
+| `internal/app` | composition root: сборка зависимостей (`RunAPI`, `RunBot`) |
 | `internal/domain` | сущности: трата, категории, деньги (копейки в `int64`) |
-| `internal/service` | бизнес-логика, валидация, области доступа (`UserScope` / `FamilyScope`) |
-| `internal/storage/postgres` | репозитории на pgx, миграции goose (встроены в бинарник) |
-| `internal/storage/memory` | хранилище в памяти для тестов и eval |
-| `internal/httpapi` | REST API веб-панели |
-| `internal/llm` | клиент OpenAI-совместимого Chat Completions API |
-| `internal/agent` | ИИ-агент: системный промпт, инструменты, цикл tool calling |
-| `internal/telegram` | адаптер бота: белый список, история диалога, очередь сообщений пользователя |
+| `internal/usecase/expense`, `internal/usecase/user` | бизнес-логика, валидация, области доступа (`UserScope` / `FamilyScope`); порты репозиториев в `ports.go` |
+| `internal/agent` | ИИ-агент: цикл tool calling и журнал изменений |
+| `internal/agent/llm` | порт к модели: формат сообщений и интерфейс `Client` |
+| `internal/agent/tools` | инструменты агента, по файлу на инструмент: JSON-схема, аргументы, вызов use case |
+| `internal/agent/prompts` | системный промпт: `system.tmpl` + golden-тест |
+| `internal/adapter/llm/openai` | клиент OpenAI-совместимого Chat Completions API |
+| `internal/adapter/storage/postgres` | репозитории на pgx, миграции goose (встроены в бинарник) |
+| `internal/adapter/storage/memory` | хранилище в памяти для тестов и eval |
+| `internal/transport/httpapi` | REST API веб-панели; типы сгенерированы из `api/openapi.yaml` (oapi-codegen) |
+| `internal/transport/telegram` | бот: белый список, история диалога, очередь сообщений пользователя |
 | `web/` | веб-панель: React + TypeScript + Vite + Mantine + TanStack Query |
+
+Правило зависимостей: `transport` и `agent` → `usecase` → `domain`; адаптеры реализуют порты и подключаются только в `internal/app`. Его проверяет depguard: `make lint` (конфиг — `.golangci.yml`).
 
 Пошаговый тур по коду для VS Code ([CodeTour](https://marketplace.visualstudio.com/items?itemName=vsls-contrib.codetour)): [.tours/new-joiner-onboarding.tour](.tours/new-joiner-onboarding.tour).
 

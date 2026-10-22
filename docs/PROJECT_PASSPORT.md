@@ -73,13 +73,13 @@
 
 ```
  Telegram ──long polling──► bot ──┐
-                                   ├──► internal/service ──► PostgreSQL
+                                   ├──► internal/usecase ──► PostgreSQL
  Browser ──► web (nginx) ──/api──► api ┘          ▲
                                    │               │
                           bot ──► agent ──► LLM (OpenAI-compatible API, tool calling)
 ```
 
-- Один Go-модуль, два бинарника из одного образа: `cmd/api` (REST) и `cmd/bot` (Telegram + агент). Общий слой `internal/service` — вся бизнес-логика и проверка владельца в одном месте.
+- Один Go-модуль, два бинарника из одного образа: `cmd/api` (REST) и `cmd/bot` (Telegram + агент). Общий слой `internal/usecase` — вся бизнес-логика и проверка владельца в одном месте. Слои: `domain` ← `usecase` ← `agent`/`transport`; адаптеры (`adapter/storage`, `adapter/llm`) реализуют порты и собираются в `internal/app`; правило проверяет depguard (`make lint`).
 - Бот работает через long polling — публичный URL и вебхук не нужны.
 - LLM вызывается через OpenAI-совместимый Chat Completions API с function calling. Провайдер (OpenAI, OpenRouter, Ollama, vLLM, Anthropic OpenAI-compat и т. п.) выбирается конфигом.
 
