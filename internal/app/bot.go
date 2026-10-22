@@ -1,7 +1,6 @@
 package app
 
 import (
-	"cmp"
 	"context"
 
 	"finance-ai-bot/internal/adapter/llm/openai"
@@ -32,7 +31,7 @@ func RunBot(ctx context.Context, cfg *config.Config) error {
 		Temperature: cfg.LLM.Temperature,
 		Timeout:     cfg.LLM.Timeout,
 	})
-	agentPrompts, err := loadPrompts(cfg.LLM.PromptPath)
+	agentPrompts, err := prompts.Load(cfg.LLM.PromptPath)
 	if err != nil {
 		return err
 	}
@@ -51,16 +50,8 @@ func RunBot(ctx context.Context, cfg *config.Config) error {
 	}
 
 	rt.log.Info("llm configured", "base_url", cfg.LLM.BaseURL, "model", cfg.LLM.Model,
-		"prompt", cmp.Or(cfg.LLM.PromptPath, "embedded"))
+		"prompt", cfg.LLM.PromptPath)
 	bot.Start(ctx)
 	rt.log.Info("shutting down")
 	return nil
-}
-
-// loadPrompts читает шаблон промптов из path; пустой path — встроенный шаблон.
-func loadPrompts(path string) (*prompts.Prompts, error) {
-	if path == "" {
-		return prompts.Embedded(), nil
-	}
-	return prompts.Load(path)
 }

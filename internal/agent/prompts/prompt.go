@@ -1,9 +1,10 @@
-// Package prompts — тексты для модели. Весь текст лежит в system.tmpl (text/template):
-// системный промпт и вспомогательные шаблоны ({{define}}); здесь только данные для подстановки.
+// Package prompts — тексты для модели. Весь текст лежит в prompts/system.md в корне репозитория
+// (text/template): системный промпт и вспомогательные шаблоны ({{define}}). Файл читается с диска
+// при старте бота, поэтому правка промпта требует только перезапуска. Здесь — загрузка,
+// проверка и данные для подстановки.
 package prompts
 
 import (
-	_ "embed"
 	"fmt"
 	"os"
 	"strings"
@@ -13,9 +14,6 @@ import (
 	"finance-ai-bot/internal/domain"
 )
 
-//go:embed system.tmpl
-var systemTmpl string
-
 // nudgeTemplate — подсказка модели, заявившей об изменении трат без вызова инструмента.
 const nudgeTemplate = "unconfirmed_nudge"
 
@@ -24,15 +22,6 @@ var weekdaysRU = [...]string{"воскресенье", "понедельник",
 // Prompts — разобранный шаблон промптов.
 type Prompts struct {
 	tmpl *template.Template
-}
-
-// Embedded — шаблон, встроенный в бинарник.
-func Embedded() *Prompts {
-	p, err := parse(systemTmpl)
-	if err != nil {
-		panic(err) // встроенный шаблон проверяют тесты
-	}
-	return p
 }
 
 // Load читает шаблон из файла и проверяет его пробным рендером, чтобы ошибка

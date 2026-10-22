@@ -58,9 +58,10 @@ type LLM struct {
 	Temperature *float64 `env:"LLM_TEMPERATURE"`
 	// MaxSteps — лимит итераций tool calling на одно сообщение.
 	MaxSteps int `env:"LLM_MAX_STEPS" envDefault:"8"`
-	// PromptPath — файл шаблона промптов вместо встроенного (формат как у agent/prompts/system.tmpl).
-	// Читается при старте бота: промпт меняется без пересборки, но с перезапуском.
-	PromptPath string `env:"AGENT_PROMPT_PATH"`
+	// PromptPath — файл шаблона промптов. Читается при старте бота: промпт меняется
+	// без пересборки, достаточно перезапуска. Относительный путь — от рабочего каталога
+	// (корень репозитория при make run-bot, /app в Docker-образе).
+	PromptPath string `env:"AGENT_PROMPT_PATH" envDefault:"prompts/system.md"`
 }
 
 // IDList — список Telegram ID через запятую; пробелы и пустые элементы допускаются ("1, 2,").

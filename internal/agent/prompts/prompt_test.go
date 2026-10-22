@@ -13,6 +13,18 @@ import (
 	"finance-ai-bot/internal/domain"
 )
 
+// promptFile — промпт из корня репозитория, тот же, что читает бот.
+var promptFile = filepath.Join("..", "..", "..", "prompts", "system.md")
+
+func mustLoad(t *testing.T) *Prompts {
+	t.Helper()
+	p, err := Load(promptFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 var update = flag.Bool("update", false, "перезаписать testdata/*.golden")
 
 // 23:30 UTC 15 октября — в Москве уже пятница, 16 октября.
@@ -28,7 +40,7 @@ func moscow(t *testing.T) *time.Location {
 }
 
 func TestSystemGolden(t *testing.T) {
-	got, err := Embedded().System(NewCalendar(fixedNow, moscow(t)))
+	got, err := mustLoad(t).System(NewCalendar(fixedNow, moscow(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +77,7 @@ func TestCalendar(t *testing.T) {
 
 // Каждая категория домена попадает в промпт с названием из domain и подсказкой.
 func TestEveryCategoryIsDescribed(t *testing.T) {
-	p, err := Embedded().System(NewCalendar(fixedNow, time.UTC))
+	p, err := mustLoad(t).System(NewCalendar(fixedNow, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +95,7 @@ func TestEveryCategoryIsDescribed(t *testing.T) {
 }
 
 func TestUnconfirmedNudge(t *testing.T) {
-	nudge, err := Embedded().UnconfirmedNudge()
+	nudge, err := mustLoad(t).UnconfirmedNudge()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,19 +159,5 @@ func TestLoadFromFile(t *testing.T) {
 	}
 	if _, err := Load(filepath.Join(dir, "missing.tmpl")); err == nil {
 		t.Error("missing file accepted")
-	}
-}
-
-// Встроенный шаблон, загруженный с диска, даёт тот же промпт.
-func TestLoadEmbeddedFileMatchesEmbedded(t *testing.T) {
-	p, err := Load("system.tmpl")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cal := NewCalendar(fixedNow, moscow(t))
-	fromDisk, _ := p.System(cal)
-	embedded, _ := Embedded().System(cal)
-	if fromDisk != embedded {
-		t.Error("system.tmpl from disk renders differently from the embedded copy")
 	}
 }

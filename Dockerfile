@@ -22,6 +22,10 @@ FROM scratch
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /out/api /out/bot /
+# Промпт агента читается с диска при старте (AGENT_PROMPT_PATH, по умолчанию prompts/system.md
+# от рабочего каталога). В образе лежит копия; docker compose монтирует поверх ./prompts.
+WORKDIR /app
+COPY prompts /app/prompts
 
 USER 65534:65534
 

@@ -2,7 +2,6 @@
 package agent
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -41,7 +40,7 @@ type Agent struct {
 type Config struct {
 	Location *time.Location
 	MaxSteps int
-	// Prompts — шаблон промптов; nil — встроенный в бинарник.
+	// Prompts — шаблон промптов (prompts.Load); обязателен.
 	Prompts *prompts.Prompts
 }
 
@@ -49,7 +48,7 @@ func New(client llm.Client, expenses ExpenseUseCase, cfg Config, log *slog.Logge
 	return &Agent{
 		llm:      client,
 		tools:    tools.NewSet(expenses, cfg.Location, log),
-		prompts:  cmp.Or(cfg.Prompts, prompts.Embedded()),
+		prompts:  cfg.Prompts,
 		loc:      cfg.Location,
 		maxSteps: cfg.MaxSteps,
 		now:      time.Now,

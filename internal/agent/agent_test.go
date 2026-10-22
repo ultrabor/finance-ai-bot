@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"finance-ai-bot/internal/agent/llm"
+	"finance-ai-bot/internal/agent/prompts"
 	"finance-ai-bot/internal/agent/tools"
 	"finance-ai-bot/internal/domain"
 	"finance-ai-bot/internal/testutil/memstore"
@@ -73,10 +75,20 @@ func newFixture(t *testing.T, steps ...func([]llm.Message) llm.Message) *fixture
 	client := &scriptedLLM{steps: steps}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return &fixture{
-		agent:    New(client, expenses, Config{Location: time.UTC, MaxSteps: 4}, log),
+		agent:    New(client, expenses, Config{Location: time.UTC, MaxSteps: 4, Prompts: loadPrompts(t)}, log),
 		expenses: expenses,
 		llm:      client,
 	}
+}
+
+// loadPrompts читает промпт из корня репозитория — тот же файл, что и бот.
+func loadPrompts(t *testing.T) *prompts.Prompts {
+	t.Helper()
+	p, err := prompts.Load(filepath.Join("..", "..", "prompts", "system.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 func lastToolResult(msgs []llm.Message) map[string]any {

@@ -73,7 +73,7 @@ func newEvalEnv(t *testing.T) evalEnv {
 	}
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	return evalEnv{agent: New(client, expenses, Config{Location: loc, MaxSteps: 8}, log), expenses: expenses}
+	return evalEnv{agent: New(client, expenses, Config{Location: loc, MaxSteps: 8, Prompts: loadPrompts(t)}, log), expenses: expenses}
 }
 
 // run проигрывает диалог Алисы и после каждой реплики проверяет её траты.

@@ -5,7 +5,7 @@ x-backend: &backend
   image: finance-ai-bot:latest
   env_file:
     - .env
-  environment: &backend-env
+  environment:
     # Внутри сети compose база доступна по имени сервиса.
     POSTGRES_HOST: db
     POSTGRES_PORT: 5432
@@ -40,15 +40,11 @@ services:
     # (не дольше ~105 с: 90 с на агента + сохранение и отправка), остальные выкидывает
     # и просит прислать снова. Не даём Docker убить процесс раньше.
     stop_grace_period: 120s
-    # Свой промпт без пересборки образа (AGENT_PROMPT_PATH): скопируйте
-    # internal/agent/prompts/system.tmpl в ./prompts/system.tmpl, раскомментируйте блок ниже
-    # и перезапустите бота (docker compose up -d bot). Файл должен быть читаем для
-    # пользователя 65534 (chmod 644). Путь задаётся здесь, а не в .env: в .env он для make run-bot.
-    # environment:
-    #   <<: *backend-env
-    #   AGENT_PROMPT_PATH: /prompts/system.tmpl
-    # volumes:
-    #   - ./prompts/system.tmpl:/prompts/system.tmpl:ro
+    # Промпт агента читается с диска при старте: правка prompts/system.md требует только
+    # перезапуска (docker compose restart bot), без пересборки образа. Файлы должны быть
+    # читаемы для пользователя 65534 (chmod 644).
+    volumes:
+      - ./prompts:/app/prompts:ro
 
   web:
     build:
