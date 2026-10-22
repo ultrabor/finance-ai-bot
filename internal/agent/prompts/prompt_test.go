@@ -28,7 +28,7 @@ func moscow(t *testing.T) *time.Location {
 }
 
 func TestSystemGolden(t *testing.T) {
-	got, err := System(NewCalendar(fixedNow, moscow(t)))
+	got, err := Embedded().System(NewCalendar(fixedNow, moscow(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,26 +58,56 @@ func TestCalendar(t *testing.T) {
 		ThisMonth: Period{"2026-10-01", "2026-10-31"},
 		LastMonth: Period{"2026-09-01", "2026-09-30"},
 	}
-	c.Categories = nil
 	if !reflect.DeepEqual(c, want) {
 		t.Errorf("calendar = %+v\nwant       %+v", c, want)
 	}
 }
 
-// Каждая категория домена попадает в промпт с подсказкой.
-func TestEveryCategoryHasHint(t *testing.T) {
-	p, err := System(NewCalendar(fixedNow, time.UTC))
+// Каждая категория домена попадает в промпт с названием из domain и подсказкой.
+func TestEveryCategoryIsDescribed(t *testing.T) {
+	p, err := Embedded().System(NewCalendar(fixedNow, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range domain.Categories {
-		hint, ok := categoryHints[c]
-		if !ok || hint == "" {
-			t.Errorf("no hint for category %q", c)
+		prefix := "- " + string(c) + " — " + c.Label() + ": "
+		i := strings.Index(p, prefix)
+		if i < 0 {
+			t.Errorf("prompt does not describe category %q", c)
 			continue
 		}
-		if line := "- " + string(c) + " — " + c.Label() + ": " + hint; !strings.Contains(p, line) {
-			t.Errorf("prompt missing %q", line)
+		if hint, _, _ := strings.Cut(p[i+len(prefix):], "\n"); strings.TrimSpace(hint) == "" {
+			t.Errorf("category %q has no hint", c)
 		}
+	}
+}
+
+func TestUnconfirmedNudge(t *testing.T) {
+	nudge, err := Embedded().UnconfirmedNudge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(nudge, "Ты ответил, что изменил траты") || strings.Contains(nudge, "Календарь") {
+		t.Errorf("nudge = %q", nudge)
+	}
+}
+
+func TestParseRejectsBrokenTemplates(t *testing.T) {
+	tests := map[string]string{
+		"syntax":           "{{.Today",
+		"no nudge":         "сегодня {{.Today}}",
+		"unknown field":    `{{.Tomorrow}}{{define "unconfirmed_nudge"}}x{{end}}`,
+		"unknown category": `{{label "beer"}}{{define "unconfirmed_nudge"}}x{{end}}`,
+	}
+	for name, text := range tests {
+		t.Run(name, func(t *testing.T) {
+			p, err := parse(text)
+			if err == nil {
+				_, err = p.System(NewCalendar(fixedNow, time.UTC))
+			}
+			if err == nil {
+				t.Error("broken template accepted")
+			}
+		})
 	}
 }

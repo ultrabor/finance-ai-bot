@@ -2,6 +2,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -19,9 +20,6 @@ const (
 	fallbackReply = "Не получилось обработать запрос. Попробуйте сформулировать иначе, например: «кофе 350»."
 	// unconfirmedReply — модель дважды заявила об изменении, не вызвав инструмент.
 	unconfirmedReply = "Ничего не сохранено: не получилось выполнить запрос. Попробуйте ещё раз, например: «такси 1200 вчера»."
-	// unconfirmedNudge — подсказка модели, которая ответила «Записал…» без вызова инструмента.
-	unconfirmedNudge = "Ты ответил, что изменил траты, но в этом ходе не вызвал ни одного инструмента — ничего не сохранено. " +
-		"Если пользователь просит записать, изменить или удалить трату, вызови нужный инструмент. Если данных не хватает — переспроси."
 )
 
 // changeVerbs — начала ответов, которыми модель подтверждает изменение трат.
@@ -33,6 +31,7 @@ type ExpenseUseCase = tools.ExpenseUseCase
 type Agent struct {
 	llm      llm.Client
 	tools    *tools.Set
+	prompts  *prompts.Prompts
 	loc      *time.Location
 	maxSteps int
 	now      func() time.Time
@@ -42,12 +41,15 @@ type Agent struct {
 type Config struct {
 	Location *time.Location
 	MaxSteps int
+	// Prompts — шаблон промптов; nil — встроенный в бинарник.
+	Prompts *prompts.Prompts
 }
 
 func New(client llm.Client, expenses ExpenseUseCase, cfg Config, log *slog.Logger) *Agent {
 	return &Agent{
 		llm:      client,
 		tools:    tools.NewSet(expenses, cfg.Location, log),
+		prompts:  cmp.Or(cfg.Prompts, prompts.Embedded()),
 		loc:      cfg.Location,
 		maxSteps: cfg.MaxSteps,
 		now:      time.Now,
@@ -60,7 +62,7 @@ func New(client llm.Client, expenses ExpenseUseCase, cfg Config, log *slog.Logge
 // userID берётся только из Telegram-апдейта и замыкается в области доступа инструментов:
 // модель не передаёт и не может подменить владельца трат.
 func (a *Agent) Reply(ctx context.Context, userID int64, history []domain.ChatMessage, text string) (string, error) {
-	system, err := prompts.System(prompts.NewCalendar(a.now(), a.loc))
+	system, err := a.prompts.System(prompts.NewCalendar(a.now(), a.loc))
 	if err != nil {
 		return "", err
 	}
@@ -93,8 +95,12 @@ func (a *Agent) Reply(ctx context.Context, userID int64, history []domain.ChatMe
 			if reply, final := a.textReply(ctx, userID, resp.Content, &done, nudged); final {
 				return reply, nil
 			}
+			nudge, err := a.prompts.UnconfirmedNudge()
+			if err != nil {
+				return "", err
+			}
 			nudged = true
-			msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: unconfirmedNudge})
+			msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: nudge})
 			continue
 		}
 

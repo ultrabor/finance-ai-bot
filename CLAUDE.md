@@ -34,6 +34,6 @@ Family expense tracker: Telegram bot with an LLM agent + web panel + REST API. G
 - Bot handles only private chats; `FAMILY_TELEGRAM_IDS` is required unless `TELEGRAM_ALLOW_ALL=true`.
 - `memstore` must mirror postgres semantics (ordering, filters) — tests rely on it.
 - REST contract lives in `api/openapi.yaml`. After changing it run `make generate` (Go models → `internal/transport/httpapi/types.gen.go`, never edit by hand) and update the handlers and `web/src/api/types.ts`.
-- System prompt text lives in `internal/agent/prompts/system.tmpl`; after editing run `go test ./internal/agent/prompts -update` and review `testdata/system.golden`.
+- Every text the model reads lives outside Go code: system prompt, category hints and the retry nudge in `internal/agent/prompts/system.tmpl`, tool descriptions/schemas in `internal/agent/tools/schemas/*.json`. System prompt text lives in `internal/agent/prompts/system.tmpl`; after editing run `go test ./internal/agent/prompts -update` and review `testdata/system.golden`.
 - New migrations: `migrations/0000N_*.sql` (goose, embedded via `migrations/embed.go`).
 - User-facing text (bot replies, API error messages, UI) is Russian; code comments are Russian, concise.
