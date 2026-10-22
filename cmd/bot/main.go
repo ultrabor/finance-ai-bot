@@ -6,12 +6,12 @@ import (
 	"os"
 	_ "time/tzdata" // часовые пояса в образе scratch
 
+	"finance-ai-bot/internal/adapter/llm/openai"
+	"finance-ai-bot/internal/adapter/storage/postgres"
 	"finance-ai-bot/internal/agent"
 	"finance-ai-bot/internal/app"
 	"finance-ai-bot/internal/config"
-	"finance-ai-bot/internal/llm"
-	"finance-ai-bot/internal/storage/postgres"
-	"finance-ai-bot/internal/telegram"
+	"finance-ai-bot/internal/transport/telegram"
 	"finance-ai-bot/internal/usecase/expense"
 	"finance-ai-bot/internal/usecase/user"
 )
@@ -51,7 +51,7 @@ func run() error {
 	}
 
 	expenses := expense.NewService(postgres.NewExpenseRepo(pool), loc)
-	client := llm.NewOpenAIClient(llm.OpenAIConfig{
+	client := openai.New(openai.Config{
 		BaseURL:     cfg.LLM.BaseURL,
 		APIKey:      cfg.LLM.APIKey,
 		Model:       cfg.LLM.Model,

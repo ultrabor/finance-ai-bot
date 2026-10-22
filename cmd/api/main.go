@@ -12,10 +12,10 @@ import (
 	"time"
 	_ "time/tzdata" // часовые пояса в образе scratch
 
+	"finance-ai-bot/internal/adapter/storage/postgres"
 	"finance-ai-bot/internal/app"
 	"finance-ai-bot/internal/config"
-	"finance-ai-bot/internal/httpapi"
-	"finance-ai-bot/internal/storage/postgres"
+	"finance-ai-bot/internal/transport/httpapi"
 	"finance-ai-bot/internal/usecase/expense"
 	"finance-ai-bot/internal/usecase/user"
 )

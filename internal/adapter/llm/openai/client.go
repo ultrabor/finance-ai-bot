@@ -1,4 +1,6 @@
-package llm
+// Package openai — адаптер OpenAI-совместимого Chat Completions API с tool calling.
+// Подходит для OpenAI, OpenRouter, Groq, Ollama, vLLM, LM Studio и других совместимых провайдеров.
+package openai
 
 import (
 	"bytes"
@@ -12,6 +14,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"finance-ai-bot/internal/agent/llm"
 )
 
 const (
@@ -20,8 +24,8 @@ const (
 	maxRetryAfter = 10 * time.Second
 )
 
-// OpenAIClient вызывает POST {BaseURL}/chat/completions.
-type OpenAIClient struct {
+// Client — клиент OpenAI-совместимого Chat Completions API: POST {BaseURL}/chat/completions.
+type Client struct {
 	baseURL     string
 	apiKey      string
 	model       string
@@ -29,7 +33,7 @@ type OpenAIClient struct {
 	http        *http.Client
 }
 
-type OpenAIConfig struct {
+type Config struct {
 	BaseURL     string
 	APIKey      string
 	Model       string
@@ -37,8 +41,8 @@ type OpenAIConfig struct {
 	Timeout     time.Duration
 }
 
-func NewOpenAIClient(cfg OpenAIConfig) *OpenAIClient {
-	return &OpenAIClient{
+func New(cfg Config) *Client {
+	return &Client{
 		baseURL:     strings.TrimRight(cfg.BaseURL, "/"),
 		apiKey:      cfg.APIKey,
 		model:       cfg.Model,
@@ -48,16 +52,16 @@ func NewOpenAIClient(cfg OpenAIConfig) *OpenAIClient {
 }
 
 type chatRequest struct {
-	Model       string    `json:"model"`
-	Messages    []Message `json:"messages"`
-	Tools       []Tool    `json:"tools,omitempty"`
-	ToolChoice  string    `json:"tool_choice,omitempty"`
-	Temperature *float64  `json:"temperature,omitempty"`
+	Model       string        `json:"model"`
+	Messages    []llm.Message `json:"messages"`
+	Tools       []llm.Tool    `json:"tools,omitempty"`
+	ToolChoice  string        `json:"tool_choice,omitempty"`
+	Temperature *float64      `json:"temperature,omitempty"`
 }
 
 type chatResponse struct {
 	Choices []struct {
-		Message Message `json:"message"`
+		Message llm.Message `json:"message"`
 	} `json:"choices"`
 }
 
@@ -77,14 +81,14 @@ func (e *StatusError) retryable() bool {
 	return e.Status == http.StatusTooManyRequests || e.Status >= 500
 }
 
-func (c *OpenAIClient) Chat(ctx context.Context, messages []Message, tools []Tool) (Message, error) {
+func (c *Client) Chat(ctx context.Context, messages []llm.Message, tools []llm.Tool) (llm.Message, error) {
 	req := chatRequest{Model: c.model, Messages: messages, Tools: tools, Temperature: c.temperature}
 	if len(tools) > 0 {
 		req.ToolChoice = "auto"
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
-		return Message{}, fmt.Errorf("llm: marshal request: %w", err)
+		return llm.Message{}, fmt.Errorf("llm: marshal request: %w", err)
 	}
 
 	var lastErr error
@@ -92,7 +96,7 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []Message, tools []Too
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
-				return Message{}, ctx.Err()
+				return llm.Message{}, ctx.Err()
 			case <-time.After(retryDelay(lastErr, attempt)):
 			}
 		}
@@ -105,7 +109,7 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []Message, tools []Too
 			break
 		}
 	}
-	return Message{}, lastErr
+	return llm.Message{}, lastErr
 }
 
 // retryDelay — пауза перед повтором: Retry-After провайдера или линейный backoff.
@@ -131,10 +135,10 @@ func retryable(err error) bool {
 	return ok
 }
 
-func (c *OpenAIClient) do(ctx context.Context, body []byte) (Message, error) {
+func (c *Client) do(ctx context.Context, body []byte) (llm.Message, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return Message{}, fmt.Errorf("llm: build request: %w", err)
+		return llm.Message{}, fmt.Errorf("llm: build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	if c.apiKey != "" {
@@ -143,29 +147,29 @@ func (c *OpenAIClient) do(ctx context.Context, body []byte) (Message, error) {
 
 	resp, err := c.http.Do(httpReq)
 	if err != nil {
-		return Message{}, transportError{err}
+		return llm.Message{}, transportError{err}
 	}
 	defer resp.Body.Close()
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		return Message{}, fmt.Errorf("llm: read response: %w", err)
+		return llm.Message{}, fmt.Errorf("llm: read response: %w", err)
 	}
 	if resp.StatusCode/100 != 2 {
 		se := &StatusError{Status: resp.StatusCode, Body: truncate(string(data), 500)}
 		if sec, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && sec > 0 {
 			se.RetryAfter = time.Duration(sec) * time.Second
 		}
-		return Message{}, se
+		return llm.Message{}, se
 	}
 
 	var out chatResponse
 	if err := json.Unmarshal(data, &out); err != nil {
-		return Message{}, fmt.Errorf("llm: decode response: %w", err)
+		return llm.Message{}, fmt.Errorf("llm: decode response: %w", err)
 	}
 	if len(out.Choices) == 0 {
 		// Некоторые провайдеры возвращают ошибку с кодом 200 в теле {"error": ...}.
-		return Message{}, fmt.Errorf("llm: empty choices: %s", truncate(string(data), 500))
+		return llm.Message{}, fmt.Errorf("llm: empty choices: %s", truncate(string(data), 500))
 	}
 	return out.Choices[0].Message, nil
 }

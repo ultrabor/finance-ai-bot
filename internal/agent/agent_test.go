@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"finance-ai-bot/internal/adapter/storage/memory"
+	"finance-ai-bot/internal/agent/llm"
 	"finance-ai-bot/internal/domain"
-	"finance-ai-bot/internal/llm"
-	"finance-ai-bot/internal/storage/memory"
 	"finance-ai-bot/internal/usecase/expense"
 	"finance-ai-bot/internal/usecase/user"
 )

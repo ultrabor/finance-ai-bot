@@ -1,4 +1,4 @@
-package llm
+package openai
 
 import (
 	"context"
@@ -12,10 +12,12 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"finance-ai-bot/internal/agent/llm"
 )
 
-func newTestClient(url string) *OpenAIClient {
-	return NewOpenAIClient(OpenAIConfig{BaseURL: url + "/", APIKey: "sk-test", Model: "m", Timeout: 5 * time.Second})
+func newTestClient(url string) *Client {
+	return New(Config{BaseURL: url + "/", APIKey: "sk-test", Model: "m", Timeout: 5 * time.Second})
 }
 
 func TestChatWireFormat(t *testing.T) {
@@ -30,12 +32,12 @@ func TestChatWireFormat(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	msgs := []Message{
-		{Role: RoleUser, Content: "кофе 350"},
-		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c0", Type: "function", Function: FunctionCall{Name: "f", Arguments: "{}"}}}},
-		{Role: RoleTool, ToolCallID: "c0", Content: "{}"},
+	msgs := []llm.Message{
+		{Role: llm.RoleUser, Content: "кофе 350"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "c0", Type: "function", Function: llm.FunctionCall{Name: "f", Arguments: "{}"}}}},
+		{Role: llm.RoleTool, ToolCallID: "c0", Content: "{}"},
 	}
-	got, err := newTestClient(srv.URL).Chat(context.Background(), msgs, []Tool{{Type: "function"}})
+	got, err := newTestClient(srv.URL).Chat(context.Background(), msgs, []llm.Tool{{Type: "function"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +76,7 @@ func TestChatRetries(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := newTestClient(srv.URL).Chat(context.Background(), []Message{{Role: RoleUser, Content: "x"}}, nil)
+	got, err := newTestClient(srv.URL).Chat(context.Background(), []llm.Message{{Role: llm.RoleUser, Content: "x"}}, nil)
 	if err != nil || got.Content != "ok" || calls.Load() != 2 {
 		t.Fatalf("got %+v, err %v, calls %d", got, err, calls.Load())
 	}
@@ -114,7 +116,7 @@ func TestChatNoRetryOnClientError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := newTestClient(srv.URL).Chat(context.Background(), []Message{{Role: RoleUser, Content: "x"}}, nil)
+	_, err := newTestClient(srv.URL).Chat(context.Background(), []llm.Message{{Role: llm.RoleUser, Content: "x"}}, nil)
 	se, ok := errors.AsType[*StatusError](err)
 	if !ok || se.Status != http.StatusBadRequest || calls.Load() != 1 {
 		t.Fatalf("err = %v, calls = %d", err, calls.Load())
@@ -127,7 +129,7 @@ func TestChatEmptyChoicesIncludesBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := newTestClient(srv.URL).Chat(context.Background(), []Message{{Role: RoleUser, Content: "x"}}, nil)
+	_, err := newTestClient(srv.URL).Chat(context.Background(), []llm.Message{{Role: llm.RoleUser, Content: "x"}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "quota exceeded") {
 		t.Fatalf("err = %v", err)
 	}

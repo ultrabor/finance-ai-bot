@@ -1,5 +1,5 @@
-// Package llm — минимальный клиент OpenAI-совместимого Chat Completions API с tool calling.
-// Подходит для OpenAI, OpenRouter, Ollama, vLLM, LM Studio и других совместимых провайдеров.
+// Package llm — порт агента к языковой модели: формат сообщений Chat Completions с tool calling
+// и интерфейс клиента. Реализация — internal/adapter/llm/openai.
 package llm
 
 import (

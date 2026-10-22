@@ -58,7 +58,7 @@ test-integration:
 	@trap 'docker stop $(ITEST_NAME) >/dev/null' EXIT; \
 	for i in $$(seq 30); do docker exec $(ITEST_NAME) pg_isready -h 127.0.0.1 -U test -d test -q && break; sleep 1; done; \
 	POSTGRES_USER=test POSTGRES_PASSWORD=test POSTGRES_DB=test POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=$(ITEST_PORT) \
-		go test -tags=integration -count=1 ./internal/storage/postgres/
+		go test -tags=integration -count=1 ./internal/adapter/storage/postgres/
 
 down:
 	docker compose down

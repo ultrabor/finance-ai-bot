@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"finance-ai-bot/internal/adapter/llm/openai"
+	"finance-ai-bot/internal/adapter/storage/memory"
 	"finance-ai-bot/internal/domain"
-	"finance-ai-bot/internal/llm"
-	"finance-ai-bot/internal/storage/memory"
 	"finance-ai-bot/internal/usecase/expense"
 	"finance-ai-bot/internal/usecase/user"
 )
@@ -42,7 +42,7 @@ func newEvalEnv(t *testing.T) evalEnv {
 	if v, err := strconv.ParseFloat(os.Getenv("LLM_TEMPERATURE"), 64); err == nil {
 		temperature = &v
 	}
-	client := llm.NewOpenAIClient(llm.OpenAIConfig{
+	client := openai.New(openai.Config{
 		BaseURL:     os.Getenv("LLM_BASE_URL"),
 		APIKey:      os.Getenv("LLM_API_KEY"),
 		Model:       model,
