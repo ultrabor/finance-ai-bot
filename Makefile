@@ -41,6 +41,10 @@ generate:
 fmt:
 	go fmt ./...
 
+# Линтеры, включая depguard-правила слоёв (.golangci.yml)
+lint:
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run ./...
+
 vet:
 	go vet ./...
 

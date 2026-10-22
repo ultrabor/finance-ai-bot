@@ -1,0 +1,55 @@
+# Линтеры проекта: make lint. depguard защищает правило зависимостей слоёв:
+#   transport, agent -> usecase -> domain; adapter реализует порты usecase и agent/llm.
+# Собирает всё только internal/app (composition root).
+version: "2"
+
+linters:
+  enable:
+    - depguard
+  settings:
+    depguard:
+      rules:
+        domain:
+          files: ["**/internal/domain/**"]
+          deny:
+            - { pkg: "finance-ai-bot/internal/usecase", desc: "domain не зависит от слоёв выше" }
+            - { pkg: "finance-ai-bot/internal/agent", desc: "domain не зависит от слоёв выше" }
+            - { pkg: "finance-ai-bot/internal/adapter", desc: "domain не зависит от адаптеров" }
+            - { pkg: "finance-ai-bot/internal/transport", desc: "domain не зависит от транспорта" }
+            - { pkg: "finance-ai-bot/internal/app", desc: "domain не зависит от composition root" }
+            - { pkg: "finance-ai-bot/internal/config", desc: "domain не читает конфигурацию" }
+        usecase:
+          files: ["**/internal/usecase/**", "!$test"]
+          deny:
+            - { pkg: "finance-ai-bot/internal/agent", desc: "usecase не знает о потребителях" }
+            - { pkg: "finance-ai-bot/internal/adapter", desc: "usecase зависит от портов (ports.go), а не от адаптеров" }
+            - { pkg: "finance-ai-bot/internal/transport", desc: "usecase не знает о потребителях" }
+            - { pkg: "finance-ai-bot/internal/app", desc: "сборка зависимостей только в app" }
+            - { pkg: "finance-ai-bot/internal/config", desc: "настройки передаются параметрами" }
+        agent:
+          files: ["**/internal/agent/**", "!$test"]
+          deny:
+            - { pkg: "finance-ai-bot/internal/adapter", desc: "агент работает с портами (agent/llm, интерфейсы use case)" }
+            - { pkg: "finance-ai-bot/internal/transport", desc: "агент не знает о транспорте" }
+            - { pkg: "finance-ai-bot/internal/app", desc: "сборка зависимостей только в app" }
+            - { pkg: "finance-ai-bot/internal/config", desc: "настройки передаются параметрами" }
+        transport:
+          files: ["**/internal/transport/**", "!$test"]
+          deny:
+            - { pkg: "finance-ai-bot/internal/adapter", desc: "транспорт зависит от интерфейсов use case, а не от адаптеров" }
+            - { pkg: "finance-ai-bot/internal/agent", desc: "бот получает агента через интерфейс telegram.Agent" }
+            - { pkg: "finance-ai-bot/internal/app", desc: "сборка зависимостей только в app" }
+            - { pkg: "finance-ai-bot/internal/config", desc: "настройки передаются параметрами" }
+        adapter:
+          files: ["**/internal/adapter/**", "!$test"]
+          deny:
+            - { pkg: "finance-ai-bot/internal/agent$", desc: "адаптер LLM реализует только порт agent/llm" }
+            - { pkg: "finance-ai-bot/internal/agent/tools", desc: "адаптер LLM реализует только порт agent/llm" }
+            - { pkg: "finance-ai-bot/internal/agent/prompts", desc: "адаптер LLM реализует только порт agent/llm" }
+            - { pkg: "finance-ai-bot/internal/transport", desc: "адаптеры не знают о транспорте" }
+            - { pkg: "finance-ai-bot/internal/app", desc: "сборка зависимостей только в app" }
+            - { pkg: "finance-ai-bot/internal/config", desc: "настройки передаются параметрами" }
+  exclusions:
+    generated: lax
+    presets:
+      - std-error-handling
