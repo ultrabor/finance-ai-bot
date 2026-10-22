@@ -1,0 +1,77 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "PR: слоистая архитектура (refactor/layered-architecture)",
+  "description": "Для ревьюера ветки: что переехало, где теперь проходят границы слоёв и какие решения стоит проверить. Поведение бота и API не меняется; единственная правка в тексте промпта — у категории other появилось название.",
+  "ref": "refactor/layered-architecture",
+  "steps": [
+    {
+      "directory": "internal",
+      "title": "Новая карта пакетов",
+      "description": "Вместо восьми плоских пакетов — слои:\n\n- `domain` — без изменений\n- `usecase/expense`, `usecase/user` — бывший `service`\n- `agent` + `agent/llm` (порт к модели), `agent/tools`, `agent/prompts`\n- `adapter/llm/openai`, `adapter/storage/{postgres,memory}`\n- `transport/httpapi`, `transport/telegram`\n- `app` — composition root\n\nПочти весь diff — `git mv` + переименования импортов; смотрите коммиты по одному (`git log main..`), каждый собирается и проходит тесты.\n\nGotcha: пакет HTTP — `transport/httpapi`, а не `transport/http`, чтобы не конфликтовать с `net/http`."
+    },
+    {
+      "file": "internal/usecase/expense/ports.go",
+      "pattern": "type Repository interface",
+      "title": "Порты живут у use case",
+      "description": "Интерфейс репозитория переехал из `service/expenses.go` в `ports.go` рядом с потребителем. `adapter/storage/postgres` и `memory` реализуют его неявно (структурная типизация), и use case ничего не импортирует из адаптеров.\n\nЧто проверить: `service.Expenses` → `expense.Service`, `service.NewExpense` → `expense.CreateParams` — только имена, логика `service.go` не менялась (diff коммита `0fa45a3` — переименования)."
+    },
+    {
+      "file": "internal/app/bot.go",
+      "pattern": "expenses := expense\\.NewService",
+      "title": "Composition root",
+      "description": "Сборка, раньше размазанная по двум `main.go`, теперь в `app.RunBot` / `app.RunAPI`; общее (логгер, часовой пояс, пул БД с миграциями) — `newRuntime` в `app.go`. `cmd/*/main.go` только грузят конфиг и вызывают `app`.\n\nImplication: `app` — единственный пакет, которому разрешено импортировать адаптеры (см. `.golangci.yml`).\n\nGotcha: `_ \"time/tzdata\"` остался в `cmd/*` — он нужен бинарнику, а не `app`."
+    },
+    {
+      "file": "internal/agent/agent.go",
+      "pattern": "turn := tools\\.Turn",
+      "title": "Агент: интерфейс и ход",
+      "description": "`agent.New` принимает `ExpenseUseCase` (алиас на `tools.ExpenseUseCase`), а не `*service.Expenses`. Область доступа и журнал собираются в `tools.Turn` — модель по-прежнему не может подставить `user_id`.\n\nПочему алиас: интерфейс нужен пакету `tools`, а `agent` импортирует `tools`; объявить его в `agent` значило бы цикл импортов.\n\nСистемный промпт теперь `prompts.System(...)` и может вернуть ошибку — тогда `Reply` возвращает error и бот отвечает «не удалось связаться с ИИ»."
+    },
+    {
+      "file": "internal/agent/tools/tools.go",
+      "pattern": "^func NewSet\\(",
+      "title": "Реестр инструментов вместо switch",
+      "description": "`tools.go` на 427 строк разрезан: здесь только `Set` (реестр по имени), `Run` (ошибки → `{\"error\"}` для модели) и generic `handle[A]`, который разбирает JSON-аргументы в нужную структуру.\n\nЧто проверить: тексты ошибок для модели и маппинг `toolError` / `ValidationError` / `ErrNotFound` перенесены без изменений — на это опираются тесты агента.\n\nGotcha: `Journal` — интерфейс с экспортированным `Record`; неэкспортированный метод нельзя реализовать из другого пакета."
+    },
+    {
+      "file": "internal/agent/tools/add.go",
+      "pattern": "turn\\.Journal\\.Record",
+      "title": "Один файл — один инструмент",
+      "description": "Шаблон каждого инструмента: константа имени, структура аргументов, JSON-схема и обработчик. Общий разбор (`flexNumber`, даты, id, сумма) — в `args.go`, представления для модели — в `view.go`.\n\nИнвариант из CLAUDE.md: мутирующий инструмент обязан вызвать `turn.Journal.Record` после успешной операции. Это проверяет `TestMutatingToolsRecordJournal` в `tools_test.go`."
+    },
+    {
+      "file": "internal/agent/prompts/system.tmpl",
+      "pattern": "Календарь \\(часовой пояс",
+      "title": "Промпт — отдельный файл",
+      "description": "Вместо `fmt.Sprintf` с 15 позиционными `%s` — `text/template` с именованными полями (`{{.ThisWeek.From}}`), встроенный через `go:embed`. Категории приходят из `domain.Categories`; подсказки по категориям — в `prompt.go`.\n\nЕдинственное изменение в тексте: строка `- other — другое: …` (раньше у other не было названия). Остальное совпадает с прежним рендером байт в байт."
+    },
+    {
+      "file": "internal/agent/prompts/prompt_test.go",
+      "pattern": "func TestSystemGolden",
+      "title": "Golden-тест промпта",
+      "description": "Рендер на фиксированный момент (23:30 UTC = уже следующий день в Москве) сравнивается с `testdata/system.golden`. Любая правка шаблона видна на ревью как diff golden-файла.\n\nОбновление: `go test ./internal/agent/prompts -update`.\n\nРядом: тест, что у каждой категории есть подсказка, а в `agent_test.go` — что промпт упоминает каждый объявленный инструмент (имена в тексте не разойдутся с кодом)."
+    },
+    {
+      "file": "internal/transport/httpapi/dto.go",
+      "pattern": "Тела ExpenseCreate и ExpenseUpdate",
+      "title": "Типы из OpenAPI — и где от них отказались",
+      "description": "Ответы и `UserCreate` генерируются oapi-codegen в `types.gen.go` (`make generate`, только модели). Тела создания и изменения траты остались ручными: сгенерированные типы приняли бы `\"350\"`, прогнали бы сумму через float64 и не отличили бы отсутствующее поле от `null`.\n\nЧтобы ручные типы не разошлись со спекой, `TestManualRequestsMatchSpec` сверяет их JSON-поля со сгенерированными.\n\nGotcha: в `openapi.yaml` суммы получили `format: double` (иначе float32), а `UserList` / `CategoryList` / `ErrorBody` стали компонентами — формат JSON на проводе прежний, `web/` не менялся."
+    },
+    {
+      "file": "internal/transport/httpapi/ports.go",
+      "pattern": "type ExpenseUseCase interface",
+      "title": "Транспорт зависит от интерфейсов",
+      "description": "HTTP объявляет нужные ему методы сам (интерфейс — у потребителя). Telegram так же использует свой `UserRegistry` вместо `*service.Users` — раньше интерфейс был объявлен, но не использовался.\n\nImplication: тесты транспорта могут подсовывать фейки — см. `failures_test.go` (сбой хранилища → 500 без деталей, паника → recover, `/healthz` → 503)."
+    },
+    {
+      "file": ".golangci.yml",
+      "pattern": "      rules:",
+      "title": "Правило зависимостей под защитой",
+      "description": "depguard запрещает импорты против слоёв: domain ничего внутреннего, usecase и agent — без адаптеров и транспорта, транспорт — без адаптеров и пакета `agent`, адаптеры видят из агента только порт `agent/llm` (`agent$` — точное совпадение). `_test`-файлы исключены: тесты используют memory-хранилище.\n\nПроверка: `make lint` или `golangci-lint run ./...` (v2.14.0). Запрещённый импорт ловится с сообщением из `desc`."
+    },
+    {
+      "title": "Как проверить ветку",
+      "description": "- `make test` — всё с `-race`; новые пакеты `agent/tools`, `agent/prompts`, `usecase/user` покрыты тестами\n- `make lint` — линтеры и правила слоёв\n- `make test-integration` — SQL на одноразовом Postgres\n- `cd internal/transport/httpapi && go generate` — `types.gen.go` не должен меняться\n\nСамые рискованные места для глаз: тексты ошибок инструментов (видит модель), golden промпта и ручной разбор PATCH."
+    }
+  ]
+}
