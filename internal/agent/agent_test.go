@@ -27,6 +27,7 @@ const (
 type scriptedLLM struct {
 	steps []func(msgs []llm.Message) llm.Message
 	calls int
+	seen  [][]llm.Message
 }
 
 func (s *scriptedLLM) Chat(_ context.Context, msgs []llm.Message, _ []llm.Tool) (llm.Message, error) {
@@ -35,6 +36,7 @@ func (s *scriptedLLM) Chat(_ context.Context, msgs []llm.Message, _ []llm.Tool) 
 	}
 	step := s.steps[s.calls]
 	s.calls++
+	s.seen = append(s.seen, msgs)
 	return step(msgs), nil
 }
 
@@ -243,24 +245,16 @@ func TestHistoryIsPassed(t *testing.T) {
 	}
 }
 
-func TestSystemPromptCalendar(t *testing.T) {
-	msk, err := time.LoadLocation("Europe/Moscow")
-	if err != nil {
-		t.Skip("no tzdata")
+// Промпт ссылается на инструменты по имени — имена должны совпадать с объявленными.
+func TestSystemPromptMentionsEveryTool(t *testing.T) {
+	f := newFixture(t, say("ок"))
+	if _, err := f.agent.Reply(context.Background(), alice, nil, "привет"); err != nil {
+		t.Fatal(err)
 	}
-	// 23:30 UTC 15 октября — в Москве уже пятница, 16 октября.
-	now := time.Date(2026, 10, 15, 23, 30, 0, 0, time.UTC)
-	p := systemPrompt(now, msk)
-	for _, want := range []string{
-		"сегодня: 2026-10-16 (пятница)",
-		"вчера: 2026-10-15",
-		"эта неделя: 2026-10-12 — 2026-10-18",
-		"прошлая неделя: 2026-10-05 — 2026-10-11",
-		"этот месяц: 2026-10-01 — 2026-10-31",
-		"прошлый месяц: 2026-09-01 — 2026-09-30",
-	} {
-		if !strings.Contains(p, want) {
-			t.Errorf("prompt missing %q", want)
+	system := f.llm.seen[0][0].Content
+	for _, d := range f.agent.tools.Definitions() {
+		if !strings.Contains(system, d.Function.Name) {
+			t.Errorf("system prompt does not mention tool %q", d.Function.Name)
 		}
 	}
 }

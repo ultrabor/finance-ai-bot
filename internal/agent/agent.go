@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"finance-ai-bot/internal/agent/llm"
+	"finance-ai-bot/internal/agent/prompts"
 	"finance-ai-bot/internal/agent/tools"
 	"finance-ai-bot/internal/domain"
 	"finance-ai-bot/internal/usecase/expense"
@@ -59,11 +60,15 @@ func New(client llm.Client, expenses ExpenseUseCase, cfg Config, log *slog.Logge
 // userID берётся только из Telegram-апдейта и замыкается в области доступа инструментов:
 // модель не передаёт и не может подменить владельца трат.
 func (a *Agent) Reply(ctx context.Context, userID int64, history []domain.ChatMessage, text string) (string, error) {
+	system, err := prompts.System(prompts.NewCalendar(a.now(), a.loc))
+	if err != nil {
+		return "", err
+	}
 	var done journal
 	turn := tools.Turn{Scope: expense.UserScope(userID), Journal: &done}
 
 	msgs := make([]llm.Message, 0, len(history)+2)
-	msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: systemPrompt(a.now(), a.loc)})
+	msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: system})
 	for _, m := range history {
 		msgs = append(msgs, llm.Message{Role: m.Role, Content: m.Content})
 	}
