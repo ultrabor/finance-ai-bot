@@ -1,19 +1,18 @@
 {
   "$schema": "https://aka.ms/codetour-schema",
-  "title": "PR: слоистая архитектура (refactor/layered-architecture)",
-  "description": "Для ревьюера ветки: что переехало, где теперь проходят границы слоёв и какие решения стоит проверить. Поведение бота и API не меняется; единственная правка в тексте промпта — у категории other появилось название.",
-  "ref": "refactor/layered-architecture",
+  "title": "Ревью: слоистая архитектура (доработка по фидбеку)",
+  "description": "Для ревьюера доработки: что переехало, где проходят границы слоёв и какие решения стоит проверить. Изменения — коммиты после сданной версии 9644be3 (`git log 9644be3..`). Поведение бота и API не меняется; единственная правка в тексте промпта — у категории other появилось название.",
   "steps": [
     {
       "directory": "internal",
       "title": "Новая карта пакетов",
-      "description": "Вместо восьми плоских пакетов — слои:\n\n- `domain` — без изменений\n- `usecase/expense`, `usecase/user` — бывший `service`\n- `agent` + `agent/llm` (порт к модели), `agent/tools`, `agent/prompts`\n- `adapter/llm/openai`, `adapter/storage/{postgres,memory}`\n- `transport/httpapi`, `transport/telegram`\n- `app` — composition root\n\nПочти весь diff — `git mv` + переименования импортов; смотрите коммиты по одному (`git log main..`), каждый собирается и проходит тесты.\n\nGotcha: пакет HTTP — `transport/httpapi`, а не `transport/http`, чтобы не конфликтовать с `net/http`."
+      "description": "Вместо восьми плоских пакетов — слои:\n\n- `domain` — без изменений\n- `usecase/expense`, `usecase/user` — бывший `service`\n- `agent` + `agent/llm` (порт к модели), `agent/tools`, `agent/prompts`\n- `adapter/llm/openai`, `adapter/storage/postgres`; `testutil/memstore` — хранилище в памяти только для тестов\n- `transport/httpapi`, `transport/telegram`\n- `app` — composition root\n\nПочти весь diff — `git mv` + переименования импортов; смотрите коммиты по одному (`git log 9644be3..`), каждый собирается и проходит тесты.\n\nGotcha: пакет HTTP — `transport/httpapi`, а не `transport/http`, чтобы не конфликтовать с `net/http`."
     },
     {
       "file": "internal/usecase/expense/ports.go",
       "pattern": "type Repository interface",
       "title": "Порты живут у use case",
-      "description": "Интерфейс репозитория переехал из `service/expenses.go` в `ports.go` рядом с потребителем. `adapter/storage/postgres` и `memory` реализуют его неявно (структурная типизация), и use case ничего не импортирует из адаптеров.\n\nЧто проверить: `service.Expenses` → `expense.Service`, `service.NewExpense` → `expense.CreateParams` — только имена, логика `service.go` не менялась (diff коммита `0fa45a3` — переименования)."
+      "description": "Интерфейс репозитория переехал из `service/expenses.go` в `ports.go` рядом с потребителем. `adapter/storage/postgres` и тестовый `testutil/memstore` реализуют его неявно (структурная типизация), и use case ничего не импортирует из адаптеров.\n\nЧто проверить: `service.Expenses` → `expense.Service`, `service.NewExpense` → `expense.CreateParams` — только имена, логика `service.go` не менялась (diff коммита `0fa45a3` — переименования)."
     },
     {
       "file": "internal/app/bot.go",
@@ -67,10 +66,10 @@
       "file": ".golangci.yml",
       "pattern": "      rules:",
       "title": "Правило зависимостей под защитой",
-      "description": "depguard запрещает импорты против слоёв: domain ничего внутреннего, usecase и agent — без адаптеров и транспорта, транспорт — без адаптеров и пакета `agent`, адаптеры видят из агента только порт `agent/llm` (`agent$` — точное совпадение). `_test`-файлы исключены: тесты используют memory-хранилище.\n\nПроверка: `make lint` или `golangci-lint run ./...` (v2.14.0). Запрещённый импорт ловится с сообщением из `desc`."
+      "description": "depguard запрещает импорты против слоёв: domain ничего внутреннего, usecase и agent — без адаптеров и транспорта, транспорт — без адаптеров и пакета `agent`, адаптеры видят из агента только порт `agent/llm` (`agent$` — точное совпадение). `_test`-файлы исключены: тесты используют `testutil/memstore`, а продовому коду импорт `testutil` запрещён отдельным правилом.\n\nПроверка: `make lint` или `golangci-lint run ./...` (v2.14.0). Запрещённый импорт ловится с сообщением из `desc`."
     },
     {
-      "title": "Как проверить ветку",
+      "title": "Как проверить доработку",
       "description": "- `make test` — всё с `-race`; новые пакеты `agent/tools`, `agent/prompts`, `usecase/user` покрыты тестами\n- `make lint` — линтеры и правила слоёв\n- `make test-integration` — SQL на одноразовом Postgres\n- `cd internal/transport/httpapi && go generate` — `types.gen.go` не должен меняться\n\nСамые рискованные места для глаз: тексты ошибок инструментов (видит модель), golden промпта и ручной разбор PATCH."
     }
   ]
