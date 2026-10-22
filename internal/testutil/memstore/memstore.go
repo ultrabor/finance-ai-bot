@@ -1,5 +1,7 @@
-// Package memory — потокобезопасное хранилище в памяти для тестов и eval-прогонов агента.
-package memory
+// Package memstore — потокобезопасное хранилище в памяти для тестов и eval-прогонов агента.
+// Только для тестов: повторяет семантику adapter/storage/postgres (фильтры, сортировку), но не
+// используется в бинарниках — это запрещает depguard (.golangci.yml).
+package memstore
 
 import (
 	"cmp"

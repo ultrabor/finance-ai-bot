@@ -6,7 +6,7 @@
     {
       "directory": "internal",
       "title": "Карта модулей",
-      "description": "Вся логика здесь. Два бинарника (`cmd/bot`, `cmd/api`) собираются из одних и тех же слоёв:\n\n- `domain` — типы без зависимостей (Money, Expense, Category)\n- `usecase/expense`, `usecase/user` — бизнес-правила и области доступа; порты репозиториев в `ports.go`\n- `agent` — цикл tool-calling; `agent/llm` — порт к модели, `agent/tools` — по файлу на инструмент, `agent/prompts` — шаблон системного промпта\n- `transport/telegram`, `transport/httpapi` — бот и REST для веб-панели (`web/`)\n- `adapter/storage/{postgres,memory}`, `adapter/llm/openai` — реализации портов\n- `app` — composition root: единственное место, где адаптеры связываются с остальным\n\nПравило зависимостей: transport и agent → usecase → domain; адаптеры импортирует только `app`. Его проверяет depguard (`make lint`, `.golangci.yml`)."
+      "description": "Вся логика здесь. Два бинарника (`cmd/bot`, `cmd/api`) собираются из одних и тех же слоёв:\n\n- `domain` — типы без зависимостей (Money, Expense, Category)\n- `usecase/expense`, `usecase/user` — бизнес-правила и области доступа; порты репозиториев в `ports.go`\n- `agent` — цикл tool-calling; `agent/llm` — порт к модели, `agent/tools` — по файлу на инструмент, `agent/prompts` — шаблон системного промпта\n- `transport/telegram`, `transport/httpapi` — бот и REST для веб-панели (`web/`)\n- `adapter/storage/postgres`, `adapter/llm/openai` — реализации портов\n- `testutil/memstore` — хранилище в памяти, только для тестов\n- `app` — composition root: единственное место, где адаптеры связываются с остальным\n\nПравило зависимостей: transport и agent → usecase → domain; адаптеры импортирует только `app`. Его проверяет depguard (`make lint`, `.golangci.yml`)."
     },
     {
       "file": "internal/app/bot.go",
@@ -77,7 +77,7 @@
     {
       "file": "internal/adapter/storage/postgres/expenses.go",
       "title": "Postgres и его зеркало",
-      "description": "`buildWhere` собирает параметризованный `WHERE` (`$1`, `$2`…), поиск по комментарию — `ILIKE` с экранированием `%` и `_`.\n\nGotcha: `internal/adapter/storage/memory/memory.go` (метод `Store.filter`) обязан повторять ту же семантику — фильтры, регистронезависимый поиск, сортировку. На memory-хранилище работают `make test`; реальный SQL проверяют только `make test-integration` (нужен Docker). Меняете запрос — меняйте оба.",
+      "description": "`buildWhere` собирает параметризованный `WHERE` (`$1`, `$2`…), поиск по комментарию — `ILIKE` с экранированием `%` и `_`.\n\nGotcha: `internal/testutil/memstore/memstore.go` (метод `Store.filter`) обязан повторять ту же семантику — фильтры, регистронезависимый поиск, сортировку. На memory-хранилище работают `make test`; реальный SQL проверяют только `make test-integration` (нужен Docker). Меняете запрос — меняйте оба.",
       "pattern": "func buildWhere\\("
     },
     {

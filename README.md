@@ -200,7 +200,7 @@ Browser ──► web (nginx) ──► api ──► usecase ──► PostgreS
 | `internal/agent/prompts` | системный промпт: `system.tmpl` + golden-тест |
 | `internal/adapter/llm/openai` | клиент OpenAI-совместимого Chat Completions API |
 | `internal/adapter/storage/postgres` | репозитории на pgx, миграции goose (встроены в бинарник) |
-| `internal/adapter/storage/memory` | хранилище в памяти для тестов и eval |
+| `internal/testutil/memstore` | хранилище в памяти только для тестов и eval (в бинарники не попадает — проверяет depguard) |
 | `internal/transport/httpapi` | REST API веб-панели; типы сгенерированы из `api/openapi.yaml` (oapi-codegen) |
 | `internal/transport/telegram` | бот: белый список, история диалога, очередь сообщений пользователя |
 | `web/` | веб-панель: React + TypeScript + Vite + Mantine + TanStack Query |

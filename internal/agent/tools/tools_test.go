@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"finance-ai-bot/internal/adapter/storage/memory"
 	"finance-ai-bot/internal/agent/llm"
 	"finance-ai-bot/internal/domain"
+	"finance-ai-bot/internal/testutil/memstore"
 	"finance-ai-bot/internal/usecase/expense"
 )
 
@@ -24,7 +24,7 @@ func (r *recorder) Record(action string, _ domain.Expense) { r.actions = append(
 
 func newSet(t *testing.T) (*Set, *recorder, Turn) {
 	t.Helper()
-	store := memory.New()
+	store := memstore.New()
 	if _, err := store.Users().Upsert(context.Background(), domain.User{TelegramID: alice, FirstName: "u"}); err != nil {
 		t.Fatal(err)
 	}

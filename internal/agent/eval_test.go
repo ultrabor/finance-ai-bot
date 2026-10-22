@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"finance-ai-bot/internal/adapter/llm/openai"
-	"finance-ai-bot/internal/adapter/storage/memory"
 	"finance-ai-bot/internal/domain"
+	"finance-ai-bot/internal/testutil/memstore"
 	"finance-ai-bot/internal/usecase/expense"
 	"finance-ai-bot/internal/usecase/user"
 )
@@ -55,7 +55,7 @@ func newEvalEnv(t *testing.T) evalEnv {
 		t.Fatal(err)
 	}
 
-	store := memory.New()
+	store := memstore.New()
 	ctx := context.Background()
 	users := user.NewService(store.Users())
 	if _, err := users.Upsert(ctx, domain.User{TelegramID: alice, FirstName: "Алиса"}); err != nil {

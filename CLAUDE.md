@@ -5,7 +5,7 @@ Family expense tracker: Telegram bot with an LLM agent + web panel + REST API. G
 ## Commands
 
 - `make generate` — regenerate HTTP models from `api/openapi.yaml` (oapi-codegen, needs network on first run)
-- `make test` — Go tests with race detector (no DB/LLM needed; uses `internal/adapter/storage/memory`)
+- `make test` — Go tests with race detector (no DB/LLM needed; uses `internal/testutil/memstore`)
 - `make test-integration` — SQL repository tests on a throwaway Postgres container (`-tags=integration`, needs Docker)
 - `make eval` — agent scenarios against a real LLM (`-tags=eval`, needs `LLM_*` env)
 - `make lint` — golangci-lint incl. depguard layer rules (`.golangci.yml`)
@@ -18,7 +18,8 @@ Family expense tracker: Telegram bot with an LLM agent + web panel + REST API. G
 - `internal/domain` — entities, `Money`, `Category`, errors. Imports nothing from `internal/`.
 - `internal/usecase/{expense,user}` — business rules; repository ports in `ports.go`.
 - `internal/agent` — LLM ↔ tools loop and journal; `agent/llm` (LLM port), `agent/tools` (one file per tool), `agent/prompts` (`system.tmpl` + golden test).
-- `internal/adapter` — `llm/openai`, `storage/{postgres,memory}`: implement ports.
+- `internal/adapter` — `llm/openai`, `storage/postgres`: implement ports.
+- `internal/testutil/memstore` — in-memory store for tests and eval only; depguard forbids it in non-test code.
 - `internal/transport/{httpapi,telegram}` — depend on use case interfaces they declare.
 - `internal/app` — composition root (`RunAPI`, `RunBot`); `cmd/*` only load config and call it.
 - Dependency rule: transport, agent → usecase → domain; adapters implement ports; nothing but `app` imports adapters. Enforced by depguard (`make lint`) — fix the design, don't loosen the rule.
@@ -31,7 +32,7 @@ Family expense tracker: Telegram bot with an LLM agent + web panel + REST API. G
 - Agent tool errors go back to the model as `{"error": "..."}`; only unexpected errors are logged.
 - Mutating agent tools (`internal/agent/tools`) must call `turn.Journal.Record` so the user learns about applied changes even if the LLM fails afterwards.
 - Bot handles only private chats; `FAMILY_TELEGRAM_IDS` is required unless `TELEGRAM_ALLOW_ALL=true`.
-- `memory` store must mirror postgres semantics (ordering, filters) — tests rely on it.
+- `memstore` must mirror postgres semantics (ordering, filters) — tests rely on it.
 - REST contract lives in `api/openapi.yaml`. After changing it run `make generate` (Go models → `internal/transport/httpapi/types.gen.go`, never edit by hand) and update the handlers and `web/src/api/types.ts`.
 - System prompt text lives in `internal/agent/prompts/system.tmpl`; after editing run `go test ./internal/agent/prompts -update` and review `testdata/system.golden`.
 - New migrations: `migrations/0000N_*.sql` (goose, embedded via `migrations/embed.go`).

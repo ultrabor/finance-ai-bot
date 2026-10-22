@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"finance-ai-bot/internal/adapter/storage/memory"
 	"finance-ai-bot/internal/domain"
+	"finance-ai-bot/internal/testutil/memstore"
 	"finance-ai-bot/internal/usecase/expense"
 	"finance-ai-bot/internal/usecase/user"
 )
@@ -20,7 +20,7 @@ const (
 
 func setup(t *testing.T) *expense.Service {
 	t.Helper()
-	store := memory.New()
+	store := memstore.New()
 	users := user.NewService(store.Users())
 	for _, id := range []int64{alice, bob} {
 		if _, err := users.Upsert(context.Background(), domain.User{TelegramID: id, FirstName: "u"}); err != nil {

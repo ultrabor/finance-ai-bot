@@ -49,6 +49,10 @@ linters:
             - { pkg: "finance-ai-bot/internal/transport", desc: "адаптеры не знают о транспорте" }
             - { pkg: "finance-ai-bot/internal/app", desc: "сборка зависимостей только в app" }
             - { pkg: "finance-ai-bot/internal/config", desc: "настройки передаются параметрами" }
+        testutil:
+          files: ["$all", "!$test"]
+          deny:
+            - { pkg: "finance-ai-bot/internal/testutil", desc: "тестовые фейки не попадают в продовый код" }
   exclusions:
     generated: lax
     presets:
